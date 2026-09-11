@@ -1,0 +1,18 @@
+# 密钥与本地配置，绝不入库
+.env
+
+# 参考资料（botpy 官方 SDK 源码拷贝，非本 SDK 代码）
+botpy_api.py
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 工具缓存
+.ruff_cache/
+.pytest_cache/
+
+# 编辑器/IDE
+.vscode/
+.zcode/
