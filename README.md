@@ -2,6 +2,8 @@
 
 QQ 官方机器人 Python SDK（Python 3.13 / asyncio / aiohttp），支持 WebSocket 与 Webhook 两种接入方式。
 
+[使用指南](docs/GUIDE.md) · [API 参考](docs/API.md) · [架构](docs/ARCHITECTURE.md) · [示例](examples/) · [更新日志](CHANGELOG.md)
+
 ## 架构
 
 ```mermaid
@@ -115,11 +117,13 @@ uv run python main.py
 Webhook 接入：将 `.env` 中 `CONNECTER` 改为 `webhook`，运行后把
 `http://<你的域名>:8080/qqbot/webhook` 配置到 QQ 开放平台回调地址（仅支持 80/443/8080/8443 端口，需公网 HTTPS）。
 
+完整可运行示例见 [examples/](examples/)：群机器人（文本/图片回复、入群欢迎、单聊回复）与 Webhook 最小接入。
+
 ## 开发
 
 ```bash
 uv run pytest    # 单元测试
-uv run ruff check src tests && uv run pyright
+uv run ruff check src tests examples && uv run pyright
 ```
 
 ## 待完善
