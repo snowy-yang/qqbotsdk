@@ -126,6 +126,12 @@ uv run pytest    # 单元测试
 uv run ruff check src tests examples && uv run pyright
 ```
 
+文档站点基于 [docsify](https://docsify.js.org/)（无需构建，仓库根 `index.html` + Markdown），本地预览：
+
+```bash
+npx docsify-cli serve    # 打开 http://localhost:3000
+```
+
 ## 待完善
 
 - 更多 OpenAPI 封装（按需在 `api.py` 的 `BotApi` 上加薄封装即可）
