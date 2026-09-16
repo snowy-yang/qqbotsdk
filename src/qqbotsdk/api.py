@@ -8,7 +8,9 @@
 """
 
 from typing import Any
+from uuid import uuid4
 
+import ujson
 from aiohttp import ClientSession
 from loguru import logger
 
@@ -24,6 +26,41 @@ FILE_TYPE_IMAGE = 1
 FILE_TYPE_VIDEO = 2
 FILE_TYPE_VOICE = 3
 FILE_TYPE_FILE = 4
+
+
+def button(
+    label: str,
+    data: str = "",
+    *,
+    type: int = 1,
+    permission: int = 2,
+    style: int = 1,
+    id: str | None = None,
+) -> dict:
+    """构造单个内嵌按钮 dict，供 keyboard() 组装后传入 keyboard= 参数。
+
+    type: 1 回调（点击推 INTERACTION_CREATE）/ 0 跳转链接（data 为 url）/
+    2 指令（data 插入输入框）。permission: 2 所有人 / 1 管理员 / 0 指定
+    用户。label 官方限 10 字以内；要补嵌套字段（如 visited_label、
+    prompt）直接修改返回的 dict。
+    """
+    return {
+        "id": id or uuid4().hex[:8],
+        "render_data": {"label": label, "style": style},
+        "action": {"type": type, "permission": {"type": permission}, "data": data},
+    }
+
+
+def keyboard(*rows: dict | list[dict]) -> dict:
+    """组装内嵌键盘（keyboard= 参数）：每个位置参数为一行，
+    单个按钮独占一行，按钮列表同行并排。"""
+    return {
+        "content": {
+            "rows": [
+                {"buttons": row if isinstance(row, list) else [row]} for row in rows
+            ]
+        }
+    }
 
 
 class ApiError(RuntimeError):
@@ -53,7 +90,9 @@ class BotApi:
             headers=headers,
             **kwargs,
         ) as resp:
-            data = await resp.json()
+            # 个别接口 200 响应的 Content-Type 不是 JSON（body 仍是 JSON，
+            # 如回应互动返回 200 text/plain + {}），跳过标头校验
+            data = await resp.json(loads=ujson.loads, content_type=None)
             if resp.status >= 400:
                 logger.warning(f"{method} {path} 失败: {data}")
                 code = data.get("code") if isinstance(data, dict) else None

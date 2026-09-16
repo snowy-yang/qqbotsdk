@@ -69,7 +69,8 @@ async def handler(...): ...
 | `.user_id` | 用户标识（兼容 `user_id`/`from_user_id`） |
 | `.group_id` | `group_openid` |
 | `.content` | 消息文本 |
-| `.message_id` | `d["id"]`，被动回复用 |
+| `.message_id` | `d["id"]`，消息事件的被动回复凭据（msg_id） |
+| `.event_id` | 推送信封顶层的事件 id（与 op/t/d 平级，形如 `INTERACTION_CREATE:uuid`）；非消息事件（`INTERACTION_CREATE`/`GROUP_ADD_ROBOT` 等）的被动回复凭据只有这里能拿到，事件体里的裸 UUID 不行（官方点名的常见坑） |
 
 ## Config
 
@@ -101,6 +102,8 @@ async def handler(...): ...
 | `respond_interaction(interaction_id, code=0)` | 回应互动事件（PUT /interactions/{id}）；按钮点击（INTERACTION_CREATE type=11）收到后必须回应，否则客户端持续 loading，同一 id 仅可回应一次 |
 
 常量：`MSG_TYPE_TEXT=0`、`MSG_TYPE_MARKDOWN=2`、`MSG_TYPE_MEDIA=7`；`FILE_TYPE_IMAGE=1`、`FILE_TYPE_VIDEO=2`、`FILE_TYPE_VOICE=3`、`FILE_TYPE_FILE=4`。
+
+按钮构造：`button(label, data, *, type=1, permission=2, style=1)` 生成单个按钮 dict，`keyboard(*rows)` 组装为 `keyboard=` 参数（单按钮独占一行，按钮列表同行并排）。点击回调经 `INTERACTION_CREATE` 事件处理：`Interaction.button_data` 取被点按钮的 `data`，`Interaction.id` 用于 `respond_interaction`，**被动回复的 `event_id` 用 `Event.event_id`（网关帧最外层 id），不能用 `Interaction.id`**。
 
 ### v2 群聊（群 openid）
 
@@ -163,6 +166,8 @@ async def handler(...): ...
 | `.status` | HTTP 状态码 |
 | `.code` | 官方业务 code（响应体中的 `code`） |
 | `.message` | 官方错误描述 |
+
+鉴权阶段（换取 access_token）的失败抛 `TokenError`（`from qqbotsdk.token import TokenError`），与 `ApiError` 同构（`RuntimeError` 子类，同样携带 `.status`/`.code`/`.message`）——appid/secret 配置错误在这里暴露 QQ 返回的真实原因。
 
 ## 事件 payload
 

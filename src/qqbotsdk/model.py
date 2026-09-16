@@ -73,11 +73,6 @@ class ValidationData(TypedDict):
     event_ts: str
 
 
-class AccessTokenResponse(TypedDict):
-    access_token: str
-    expires_in: int
-
-
 class Intent(IntFlag):
     GUILDS = 1 << 0
     GUILD_MEMBERS = 1 << 1

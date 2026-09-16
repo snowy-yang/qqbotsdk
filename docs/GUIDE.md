@@ -106,7 +106,7 @@ handler 参数按标注解析的完整规则：
 | 参数标注 | 得到 |
 |---|---|
 | payload dataclass（如 `GroupAtMessage`） | 解析后的 dataclass 对象；未收录事件回退原始 dict |
-| `Event` | 事件封装对象（`.raw`/`.data`/`.typed`/`.user_id`/`.group_id`/`.content`/`.message_id`） |
+| `Event` | 事件封装对象（`.raw`/`.data`/`.typed`/`.user_id`/`.group_id`/`.content`/`.message_id`/`.event_id`） |
 | 组件类型（`BotApi`/`Session`/`Config` 等） | `emitter.services` 中按类型登记的实例；未登记回退传原始 dict |
 | 无标注 | 原始事件 dict |
 
@@ -121,7 +121,7 @@ handler 参数按标注解析的完整规则：
 
 ### 被动回复（最常用）
 
-携带 `msg_id`（回复某条消息）或 `event_id`（响应某类事件，二选一）即为被动回复，**不需要任何消息频率白名单**：
+携带 `msg_id`（回复某条消息）或 `event_id`（响应某类事件，二选一）即为被动回复，**不需要任何消息频率白名单**。两个 id 来源不同：`msg_id` 是消息事件体里的 `d.id`；`event_id` 是**网关推送最外层**的 id（`event.event_id`，形如 `INTERACTION_CREATE:uuid`），不是事件体里的裸 UUID：
 
 - 群聊：收到消息后 **5 分钟**内可回复，同一 `msg_id` 最多 **5 次**；
 - 单聊：**60 分钟**内可回复，同一 `msg_id` 最多 **4 次**；
@@ -164,23 +164,36 @@ await api.post_group_message(group_openid, content="# 标题\n正文",
 
 ### Markdown 与按钮（msg_type=2）
 
-`post_group_message`/`post_c2c_message` 原生支持 Markdown 与内嵌按钮（keyboard）：
+`button()`/`keyboard()`（`from qqbotsdk.api import button, keyboard`）构造内嵌按钮，配合 `markdown=` 一起发（msg_type 自动置 2）：
 
 ```python
 await api.post_group_message(
     group_openid,
-    markdown="## 标题\n**加粗**正文",        # msg_type 自动置 2，与 content 互斥
-    keyboard={"content": {"rows": [{"buttons": [{
-        "id": "btn1",
-        "render_data": {"label": "点我", "style": 1},
-        "action": {"type": 1, "permission": {"type": 2}, "data": "我的按钮数据"},
-    }]}}]},
+    markdown="## 标题\n**加粗**正文",        # 与 content 互斥
+    keyboard=keyboard(
+        button("点我", data="我的按钮数据"),                 # 单按钮独占一行
+        [button("赞", data="like"), button("踩", data="dislike")],  # 列表同行并排
+    ),
     msg_id=msg.id,
 )
 ```
 
-- `action.type`：1 回调（点击推 `INTERACTION_CREATE` 事件，`data.resolved.button_data` 携带按钮 data）、2 指令（往输入框插入 data）、0 跳转链接；
-- 收到 `INTERACTION_CREATE` 后必须调 `api.respond_interaction(interaction_id)` 应答，否则用户端按钮一直 loading；事件体的 `id` 可作 `event_id` 被动回复；
+- `button(label, data, *, type=1, permission=2, style=1)`：`type` 1 回调（点击推 `INTERACTION_CREATE`）、0 跳转链接（data 为 url）、2 指令（往输入框插入 data）；`permission` 2 所有人 / 1 管理员 / 0 指定用户；`label` 官方限 10 字以内；要补嵌套字段（如 `visited_label`、`prompt`）直接修改返回的 dict。
+
+**处理按钮点击**：点击回调推 `INTERACTION_CREATE` 事件，`inter.button_data` 即被点按钮的 `data`：
+
+```python
+@ee.on("INTERACTION_CREATE")
+async def on_button(inter: Interaction, event: Event, api: BotApi):
+    # 必须应答，否则用户端按钮一直 loading（inter.id 是事件体里的互动 id）
+    await api.respond_interaction(inter.id)
+    await api.post_group_message(
+        inter.group_openid, content=f"你点了：{inter.button_data}",
+        event_id=event.event_id,
+    )
+```
+
+- **`event_id` 要取网关帧最外层的 id（`event.event_id`，形如 `INTERACTION_CREATE:uuid`），不能用事件体里的裸 UUID `inter.id`**——`inter.id` 只用于 `respond_interaction`，这是官方文档点名的常见坑；
 - 需要在 intents.toml 开启 `INTERACTION` 分组；
 - Markdown 有平台权限要求，无权限时发送会抛 `ApiError`（业务 code 304036/40034127），按需回退纯文本。
 
@@ -202,6 +215,7 @@ uv run python main.py
 
 - **启动后频繁重连 / READY 收不到**：QQ 网关接口有频率限制（code 100017），连续重启需间隔约 1 分钟；SDK 已内置退避，等即可。
 - **`ApiError`**：HTTP ≥400 时抛出，`e.status`/`e.code`/`e.message` 可用于排查（如被动回复超时、msg_seq 重复、内容审核不通过）。
+- **日志出现 `TokenError: 获取 access_token 失败`**：appid/secret 配置错误或被平台拒绝，`code`/`message` 就是 QQ 返回的真实原因，对照官方错误码排查即可。
 - **handler 没被触发**：检查 intents.toml 对应事件是否为 `true`；群/单聊事件需开通对应能力；频道消息事件区分公私域。
 - **想收原始数据**：handler 裸参数或标 `Event`，`event.raw` 是完整线上 payload（含 op/t/d）。
 - **日志**：SDK 用 loguru 输出中文日志，连接、重连、API 失败、handler 异常均有记录，可直接用 loguru 配置格式与落盘。

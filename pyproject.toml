@@ -16,6 +16,7 @@ dependencies = [
     "loguru>=0.7.3",
     "pyee>=14.0.0",
     "python-dotenv>=1.2.3",
+    "ujson>=6.0.0",
 ]
 
 [project.scripts]

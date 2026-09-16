@@ -8,11 +8,11 @@
 """
 
 import asyncio
-import json
 from time import monotonic
 from typing import Protocol
 
 import aiohttp
+import ujson
 from aiohttp import WSMsgType, web
 from loguru import logger
 
@@ -74,7 +74,7 @@ class WebsocketConnecter:
         async with self._http.get(
             f"{self._config.base_url}/gateway", headers=headers
         ) as resp:
-            data = await resp.json()
+            data = await resp.json(loads=ujson.loads)
 
         if data.get("code") == 100017:
             raise RateLimitError
@@ -101,7 +101,7 @@ class WebsocketConnecter:
             if msg.type != WSMsgType.TEXT:
                 logger.warning(f"WebSocket 收到非文本帧，连接终止: {msg.type}")
                 break
-            data: Payload = msg.json()
+            data: Payload = msg.json(loads=ujson.loads)
             op = data.get("op")
             if op == Opcode.HELLO:
                 d = data.get("d")
@@ -169,7 +169,7 @@ class WebhookConnecter:
 
     async def _handle(self, request: web.Request) -> web.Response:
         body = await request.read()
-        payload: Payload = json.loads(body)
+        payload: Payload = ujson.loads(body)
 
         if payload.get("op") == Opcode.VALIDATION:
             logger.info("收到 Webhook 验证请求")

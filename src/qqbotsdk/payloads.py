@@ -206,8 +206,10 @@ class Interaction:
     """互动（INTERACTION_CREATE）。
 
     按钮点击（type=11）时 data.resolved.button_data 携带按钮的
-    action.data；id 可作 event_id 被动回复，并需 PUT
-    /interactions/{id} 回应（见 BotApi.respond_interaction）。
+    action.data；id 用于 PUT /interactions/{id} 回应（见
+    BotApi.respond_interaction）。注意被动回复的 event_id 不取这里的
+    id（它是裸 UUID），要取网关帧最外层的 id（Event.event_id，形如
+    INTERACTION_CREATE:uuid）——官方文档点名的常见坑。
     """
 
     id: str | None = None
@@ -223,6 +225,13 @@ class Interaction:
     version: int | None = None
     application_id: str | None = None
     timestamp: str | None = None
+
+    @property
+    def button_data(self) -> str:
+        """被点击按钮的 action.data（即 data.resolved.button_data）。"""
+        resolved = (self.data or {}).get("resolved")
+        value = resolved.get("button_data") if isinstance(resolved, dict) else None
+        return value if isinstance(value, str) else ""
 
 
 @dataclass(slots=True)

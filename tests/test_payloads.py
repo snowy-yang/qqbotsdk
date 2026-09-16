@@ -3,6 +3,7 @@ from qqbotsdk.model import Opcode
 from qqbotsdk.payloads import (
     C2CMessage,
     GroupAtMessage,
+    Interaction,
     Ready,
     parse_event,
 )
@@ -60,6 +61,27 @@ def test_parse_ignores_extra_and_missing_fields():
 def test_parse_non_dict_d_returns_dict():
     d = 42  # 心跳等 opcode 的 d 是数字
     assert parse_event("GROUP_AT_MESSAGE_CREATE", d) == 42
+
+
+def test_interaction_button_data():
+    inter = parse_event(
+        "INTERACTION_CREATE",
+        {
+            "id": "i1",
+            "chat_type": 1,
+            "group_openid": "G1",
+            "data": {"resolved": {"button_data": "btn|like"}},
+        },
+    )
+    assert isinstance(inter, Interaction)
+    assert inter.button_data == "btn|like"
+
+
+def test_interaction_button_data_defaults_to_empty():
+    inter = Interaction(id="i2", data=None)
+    assert inter.button_data == ""
+    inter = Interaction(id="i3", data={"resolved": None})
+    assert inter.button_data == ""
 
 
 async def test_typed_annotation_receives_dataclass():

@@ -48,5 +48,15 @@ class Event:
     def message_id(self) -> str | None:
         return self._d.get("id")
 
+    @property
+    def event_id(self) -> str | None:
+        """推送信封顶层的事件 id（与 op/t/d 平级）。
+
+        非消息事件（GROUP_ADD_ROBOT 等）事件体里没有 id，被动回复的
+        event_id 只有这里能拿到；消息事件用 `.message_id`（即 msg_id）。
+        """
+        id_ = self._payload.get("id")
+        return id_ if isinstance(id_, str) else None
+
     def __repr__(self) -> str:
         return f"<Event {self.type} {self._d}>"

@@ -8,6 +8,8 @@
 ### 新增
 
 - Markdown 与内嵌按钮一等支持：`post_group_message`/`post_c2c_message` 新增 `markdown`/`keyboard` 参数（自动置 msg_type=2，与 content 互斥）；新增 `respond_interaction()` 回应按钮回调；`Interaction` payload 补齐 `chat_type`/`scene`/`group_openid` 等官方字段
+- `Event` 新增 `event_id` 属性（推送信封顶层的事件 id，与 op/t/d 平级）：非消息事件（GROUP_ADD_ROBOT 等）的被动回复不再需要手动 `event.raw["id"]`
+- 按钮快捷构造与点击处理：`button()`/`keyboard()` 生成内嵌按钮（免手写嵌套 dict）；`Interaction` 新增 `button_data` 属性（被点按钮的 action.data）；examples/group_bot 补 `/btn` 卡片与 `INTERACTION_CREATE` 回调示例
 
 ### 变更
 
@@ -16,6 +18,12 @@
 ### 移除
 
 - 音乐插件示例（`plugins/`、根目录 `main.py`）已拆分为独立的点歌 bot 项目（含 Markdown 卡片、按钮回调与内置短网址多线程下载代理），不再随 SDK 仓库分发
+
+### 修复
+
+- token 请求失败时抛出 `TokenError`（携带 QQ 返回的 `code`/`message`），不再抛出掩盖真实原因的 `KeyError: 'access_token'`
+- 修正被动回复 `event_id` 的指引：官方要求取网关帧最外层的 id（`Event.event_id`），事件体里的裸 UUID（`Interaction.id` 等）不能作 `event_id`，此前文档与 docstring 的说法有误
+- 响应 `Content-Type` 非 JSON 时不再抛 `ContentTypeError`（个别接口如回应互动返回 200 text/plain + `{}` body）；JSON 解析统一切换 ujson
 
 ## [0.1.0] - 2026-09-14
 

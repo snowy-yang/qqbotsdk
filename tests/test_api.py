@@ -1,4 +1,9 @@
-from qqbotsdk.api import BotApi
+from aiohttp import ClientSession, ClientTimeout, web
+from aiohttp.test_utils import TestServer
+
+from qqbotsdk.api import BotApi, button, keyboard
+from qqbotsdk.config import Config
+from qqbotsdk.token import AccessToken
 
 
 def make_api() -> tuple[BotApi, dict]:
@@ -163,3 +168,63 @@ async def test_respond_interaction():
     method, path, kwargs = cap["call"]
     assert (method, path) == ("PUT", "/interactions/I1")
     assert kwargs["json"] == {"code": 0}
+
+
+def test_button_defaults_and_overrides():
+    btn = button("点我", data="d1")
+    assert btn["render_data"] == {"label": "点我", "style": 1}
+    assert btn["action"] == {"type": 1, "permission": {"type": 2}, "data": "d1"}
+    assert len(btn["id"]) == 8  # 未指定 id 时自动生成短 id
+
+    btn2 = button("跳转", data="https://x", type=0, permission=1, style=0, id="b2")
+    assert btn2["id"] == "b2"
+    assert btn2["action"]["type"] == 0
+    assert btn2["action"]["permission"] == {"type": 1}
+    assert btn2["render_data"]["style"] == 0
+
+
+def test_keyboard_rows():
+    b1, b2, b3 = button("a", data="1"), button("b", data="2"), button("c", data="3")
+    kb = keyboard(b1, [b2, b3])
+    rows = kb["content"]["rows"]
+    assert rows[0]["buttons"] == [b1]  # 单按钮独占一行
+    assert rows[1]["buttons"] == [b2, b3]  # 列表同行并排
+    assert len(rows) == 2
+
+
+async def test_request_tolerates_non_json_content_type():
+    """回应互动等接口 200 响应的 Content-Type 是 text/plain（body 为 JSON），
+    request 不应抛 ContentTypeError（真实 HTTP 栈回归）。"""
+
+    async def handler(request):
+        return web.Response(text="{}", content_type="text/plain")
+
+    app = web.Application()
+    app.router.add_route("PUT", "/interactions/I1", handler)
+    server = TestServer(app)
+    await server.start_server()
+    try:
+        config = Config(
+            app_id="id",
+            app_secret="s",
+            base_url=f"http://{server.host}:{server.port}",
+            timeout=ClientTimeout(total=5),
+            connecter="websocket",
+            intents_file="intents.toml",
+            webhook_host="0.0.0.0",
+            webhook_port=8080,
+            webhook_path="/qqbot/webhook",
+        )
+
+        class FixedToken(AccessToken):
+            async def get_access_token(self) -> str:
+                return "test-token"
+
+        http = ClientSession()
+        try:
+            api = BotApi(config, http, FixedToken(config, http))
+            assert await api.respond_interaction("I1") == {}
+        finally:
+            await http.close()
+    finally:
+        await server.close()
