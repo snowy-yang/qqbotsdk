@@ -161,6 +161,28 @@ await api.post_group_message(group_openid, content="# 标题\n正文",
                              msg_id=msg.id, msg_type=2)
 ```
 
+### Markdown 与按钮（msg_type=2）
+
+`post_group_message`/`post_c2c_message` 原生支持 Markdown 与内嵌按钮（keyboard）：
+
+```python
+await api.post_group_message(
+    group_openid,
+    markdown="## 标题\n**加粗**正文",        # msg_type 自动置 2，与 content 互斥
+    keyboard={"content": {"rows": [{"buttons": [{
+        "id": "btn1",
+        "render_data": {"label": "点我", "style": 1},
+        "action": {"type": 1, "permission": {"type": 2}, "data": "我的按钮数据"},
+    }]}}]},
+    msg_id=msg.id,
+)
+```
+
+- `action.type`：1 回调（点击推 `INTERACTION_CREATE` 事件，`data.resolved.button_data` 携带按钮 data）、2 指令（往输入框插入 data）、0 跳转链接；
+- 收到 `INTERACTION_CREATE` 后必须调 `api.respond_interaction(interaction_id)` 应答，否则用户端按钮一直 loading；事件体的 `id` 可作 `event_id` 被动回复；
+- 需要在 intents.toml 开启 `INTERACTION` 分组；
+- Markdown 有平台权限要求，无权限时发送会抛 `ApiError`（业务 code 304036/40034127），按需回退纯文本。
+
 ### 撤回
 
 - 群/单聊（v2）：发出 **2 分钟**内可撤回（`withdraw_group_message`/`withdraw_c2c_message`）；

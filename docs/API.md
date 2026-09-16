@@ -100,6 +100,7 @@ async def handler(...): ...
 | `request(method, path, **kwargs)` | 通用请求，kwargs 透传 aiohttp（`json=`/`params=` 等） |
 | `get` / `post` / `delete` / `put` / `patch`(path, **kwargs) | `request` 快捷方式 |
 | `me()` | 机器人自身信息（GET /users/@me） |
+| `respond_interaction(interaction_id, code=0)` | 回应互动事件（PUT /interactions/{id}）；按钮点击（INTERACTION_CREATE type=11）收到后必须回应，否则客户端持续 loading，同一 id 仅可回应一次 |
 
 常量：`MSG_TYPE_TEXT=0`、`MSG_TYPE_MARKDOWN=2`、`MSG_TYPE_MEDIA=7`；`FILE_TYPE_IMAGE=1`、`FILE_TYPE_VIDEO=2`、`FILE_TYPE_VOICE=3`、`FILE_TYPE_FILE=4`。
 
@@ -107,7 +108,7 @@ async def handler(...): ...
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `post_group_message(group_openid, content="", msg_id=None, msg_seq=1, media=None, event_id=None, **extra)` | POST /v2/groups/{group_openid}/messages | `msg_id`/`event_id` 二选一即被动回复；`media` 传上传返回的 `{"file_info": …}`（自动 msg_type=7）；其余字段经 `extra` 透传（如 `msg_type=2` markdown） |
+| `post_group_message(group_openid, content="", msg_id=None, msg_seq=1, media=None, event_id=None, markdown=None, keyboard=None, **extra)` | POST /v2/groups/{group_openid}/messages | `msg_id`/`event_id` 二选一即被动回复（`event_id` 支持 GROUP_ADD_ROBOT / INTERACTION_CREATE 等事件）；`media` 传上传返回的 `{"file_info": …}`（自动 msg_type=7）；`markdown` 为字符串或完整 dict（自动 msg_type=2，与 content 互斥）；`keyboard` 为内嵌键盘 `{"content": {"rows": [...]}}` 或 `{"id": …}`；其余字段经 `extra` 透传 |
 | `upload_group_file(group_openid, file_type, url, srv_send_msg=False)` | POST /v2/groups/{group_openid}/files | 富媒体上传，返回含 `file_info`；`srv_send_msg=True` 上传即发送 |
 | `withdraw_group_message(group_openid, message_id)` | DELETE /v2/groups/{group_openid}/messages/{message_id} | 发出 2 分钟内可撤回 |
 | `mute_group_member(group_openid, mute_expire_at)` | POST /v2/groups/{group_openid}/restrict_chat_setting | `mute_expire_at` 为 RFC3339 到期时间；传早于当前的时间即解禁 |
@@ -116,7 +117,7 @@ async def handler(...): ...
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `post_c2c_message(openid, content="", msg_id=None, msg_seq=1, media=None, event_id=None, **extra)` | POST /v2/users/{openid}/messages | 同 `post_group_message` |
+| `post_c2c_message(openid, content="", msg_id=None, msg_seq=1, media=None, event_id=None, markdown=None, keyboard=None, **extra)` | POST /v2/users/{openid}/messages | 同 `post_group_message` |
 | `upload_c2c_file(openid, file_type, url, srv_send_msg=False)` | POST /v2/users/{openid}/files | 同 `upload_group_file` |
 | `withdraw_c2c_message(openid, message_id)` | DELETE /v2/users/{openid}/messages/{message_id} | 2 分钟内可撤回 |
 

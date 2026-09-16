@@ -44,6 +44,7 @@ flowchart TB
 - 断线自动重连（指数退避 + 心跳看门狗），重连时自动 RESUME 续传
 - Webhook 接入自带 Ed25519 验签、op=13 验证应答与 60s TTL 事件去重
 - 事件订阅由项目根目录的 `intents.toml` 控制，将对应事件改为 `true` 即可
+- Markdown 与内嵌按钮一等支持：`post_group_message(..., markdown=..., keyboard=...)` 自动置 msg_type=2，`respond_interaction()` 回应按钮回调
 - 组件生命周期由 dishka DI 容器统一管理，全 SDK 共享一个 HTTP 连接池
 
 ## 配置

@@ -82,6 +82,14 @@ class BotApi:
         """机器人自身信息（GET /users/@me）。"""
         return await self.get("/users/@me")
 
+    async def respond_interaction(self, interaction_id: str, code: int = 0) -> dict:
+        """回应互动事件（PUT /interactions/{interaction_id}）。
+
+        按钮点击（INTERACTION_CREATE type=11）等互动收到后必须回应，
+        否则客户端一直 loading 直到超时；同一 id 只能回应一次。
+        """
+        return await self.put(f"/interactions/{interaction_id}", json={"code": code})
+
     # ---------- v2 单聊（C2C） ----------
 
     async def post_c2c_message(
@@ -92,13 +100,17 @@ class BotApi:
         msg_seq: int = 1,
         media: dict | None = None,
         event_id: str | None = None,
+        markdown: str | dict | None = None,
+        keyboard: dict | None = None,
         **extra: Any,
     ) -> dict:
         """发单聊消息（POST /v2/users/{openid}/messages）。
 
         media 为富媒体上传接口返回的 {"file_info": ...} 结构，
         此时 content 作媒体下方文本。msg_id（回复消息）与 event_id
-        （响应事件）二选一，均为被动回复。
+        （响应事件）二选一，均为被动回复。markdown 为字符串或完整
+        dict（msg_type=2，与 content 互斥）；keyboard 为内嵌键盘
+        结构（{"content": {"rows": [...]}} 或 {"id": ...}）。
         """
         return await self._post_message(
             f"/v2/users/{openid}/messages",
@@ -107,6 +119,8 @@ class BotApi:
             msg_seq=msg_seq,
             media=media,
             event_id=event_id,
+            markdown=markdown,
+            keyboard=keyboard,
             **extra,
         )
 
@@ -133,12 +147,16 @@ class BotApi:
         msg_seq: int = 1,
         media: dict | None = None,
         event_id: str | None = None,
+        markdown: str | dict | None = None,
+        keyboard: dict | None = None,
         **extra: Any,
     ) -> dict:
         """发群消息（POST /v2/groups/{group_openid}/messages）。
 
         msg_id（回复消息）与 event_id（响应 GROUP_ADD_ROBOT /
-        GROUP_MSG_RECEIVE / INTERACTION_CREATE 等事件）二选一。
+        INTERACTION_CREATE 等事件）二选一。markdown 为字符串或完整
+        dict（msg_type=2，与 content 互斥）；keyboard 为内嵌键盘
+        结构（{"content": {"rows": [...]}} 或 {"id": ...}）。
         """
         return await self._post_message(
             f"/v2/groups/{group_openid}/messages",
@@ -147,6 +165,8 @@ class BotApi:
             msg_seq=msg_seq,
             media=media,
             event_id=event_id,
+            markdown=markdown,
+            keyboard=keyboard,
             **extra,
         )
 
@@ -167,19 +187,32 @@ class BotApi:
         msg_seq: int,
         media: dict | None,
         event_id: str | None,
+        markdown: str | dict | None = None,
+        keyboard: dict | None = None,
         **extra: Any,
     ) -> dict:
-        body: dict[str, Any] = {"msg_type": MSG_TYPE_MEDIA if media else MSG_TYPE_TEXT}
-        if content:
-            body["content"] = content
+        # media > markdown > 纯文本；markdown 与 content 互斥（官方约定）
+        if media is not None:
+            body: dict[str, Any] = {"msg_type": MSG_TYPE_MEDIA, "media": media}
+            if content:
+                body["content"] = content
+        elif markdown is not None:
+            body = {
+                "msg_type": MSG_TYPE_MARKDOWN,
+                "markdown": markdown if isinstance(markdown, dict) else {"content": markdown},
+            }
+        else:
+            body = {"msg_type": MSG_TYPE_TEXT}
+            if content:
+                body["content"] = content
         if msg_id:
             body["msg_id"] = msg_id
             body["msg_seq"] = msg_seq
         elif event_id:
             body["event_id"] = event_id
             body["msg_seq"] = msg_seq
-        if media is not None:
-            body["media"] = media
+        if keyboard is not None:
+            body["keyboard"] = keyboard
         body.update(extra)
         return await self.post(path, json=body)
 

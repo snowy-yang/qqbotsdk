@@ -203,17 +203,26 @@ class MessageDelete:
 
 @dataclass(slots=True)
 class Interaction:
-    """互动（INTERACTION_CREATE）。"""
+    """互动（INTERACTION_CREATE）。
+
+    按钮点击（type=11）时 data.resolved.button_data 携带按钮的
+    action.data；id 可作 event_id 被动回复，并需 PUT
+    /interactions/{id} 回应（见 BotApi.respond_interaction）。
+    """
 
     id: str | None = None
+    type: int | None = None
+    scene: str | None = None  # c2c / group / guild
+    chat_type: int | None = None  # 0 频道 / 1 群聊 / 2 单聊
     guild_id: str | None = None
     channel_id: str | None = None
-    type: int | None = None
+    group_openid: str | None = None
+    user_openid: str | None = None
+    group_member_openid: str | None = None
     data: dict | None = None
     version: int | None = None
     application_id: str | None = None
-    group_member: dict | None = None
-    c2c_member: dict | None = None
+    timestamp: str | None = None
 
 
 @dataclass(slots=True)

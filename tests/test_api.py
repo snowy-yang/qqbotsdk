@@ -120,3 +120,46 @@ async def test_me():
     api, cap = make_api()
     await api.me()
     assert cap["call"][:2] == ("GET", "/users/@me")
+
+
+async def test_post_message_markdown_and_keyboard():
+    api, cap = make_api()
+    kb = {"content": {"rows": []}}
+    await api.post_group_message("G1", markdown="# 标题", keyboard=kb, msg_id="m1")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/groups/G1/messages")
+    body = kwargs["json"]
+    assert body["msg_type"] == 2
+    assert body["markdown"] == {"content": "# 标题"}
+    assert "content" not in body  # markdown 与 content 互斥
+    assert body["keyboard"] == kb
+    assert body["msg_id"] == "m1"
+
+
+async def test_post_message_markdown_dict_and_event_id():
+    api, cap = make_api()
+    await api.post_c2c_message(
+        "U1", markdown={"content": "# t"}, event_id="e1", msg_seq=2
+    )
+    body = cap["call"][2]["json"]
+    assert body["msg_type"] == 2
+    assert body["markdown"] == {"content": "# t"}
+    assert body["event_id"] == "e1"
+    assert body["msg_seq"] == 2
+
+
+async def test_media_takes_precedence_over_markdown():
+    api, cap = make_api()
+    await api.post_group_message("G1", content="看图", msg_id="m1",
+                                 media={"file_info": "f"}, markdown="# t")
+    body = cap["call"][2]["json"]
+    assert body["msg_type"] == 7
+    assert "markdown" not in body
+
+
+async def test_respond_interaction():
+    api, cap = make_api()
+    await api.respond_interaction("I1")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PUT", "/interactions/I1")
+    assert kwargs["json"] == {"code": 0}
