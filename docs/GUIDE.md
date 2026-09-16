@@ -76,7 +76,7 @@ SDK 启动时读取 `intents.toml` 计算订阅掩码，把想收的事件改成
 用装饰器把 handler 注册到 `EventEmitter`，事件名即线上 payload 的 `t` 名（如 `GROUP_AT_MESSAGE_CREATE`）。三种写法可混用：
 
 ```python
-from qqbotsdk import EventEmitter, EventQueue, Inject
+from qqbotsdk import EventEmitter, EventQueue
 
 ee = EventEmitter(EventQueue())
 
@@ -92,12 +92,12 @@ from qqbotsdk.payloads import GroupAtMessage
 async def typed(msg: GroupAtMessage):
     print(msg.group_openid, msg.user_openid, msg.content)
 
-# 方式三：依赖注入
+# 方式三：参数注入，标注组件类型即拿到实例
 from qqbotsdk.api import BotApi
 from qqbotsdk.events import Event
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")
-async def di(event: Event, api: Inject[BotApi]):
+async def di(event: Event, api: BotApi):
     await api.post_group_message(event.group_id, content="收到", msg_id=event.message_id)
 ```
 
@@ -107,7 +107,7 @@ handler 参数按标注解析的完整规则：
 |---|---|
 | payload dataclass（如 `GroupAtMessage`） | 解析后的 dataclass 对象；未收录事件回退原始 dict |
 | `Event` | 事件封装对象（`.raw`/`.data`/`.typed`/`.user_id`/`.group_id`/`.content`/`.message_id`） |
-| `Inject[T]` | DI 容器解析的 `T`（如 `BotApi`）；解析失败回退传原始 dict |
+| 组件类型（`BotApi`/`Session`/`Config` 等） | `emitter.services` 中按类型登记的实例；未登记回退传原始 dict |
 | 无标注 | 原始事件 dict |
 
 注意：
@@ -115,6 +115,7 @@ handler 参数按标注解析的完整规则：
 - 业务事件（op=0）处理器的**返回值不会回流**，回复消息请在 handler 里显式调 API。
 - 单个 handler 抛异常只记录日志，不影响同事件其他 handler 和主循环。
 - 未订阅（intents.toml 为 `false`）的事件不会到达 handler。
+- 自定义组件也能注入：`ee.services[MyService] = MyService(...)` 登记后，handler 形参标注 `MyService` 即可拿到实例。
 
 ## 发消息
 

@@ -1,4 +1,4 @@
-"""全局配置：启动时从环境变量一次性读齐（校验缺失/非法值），经 DI 注入各组件。"""
+"""全局配置：启动时从环境变量一次性读齐（校验缺失/非法值），由 run_loop 装配到各组件。"""
 
 import os
 from dataclasses import dataclass
@@ -15,7 +15,7 @@ def _required_env(name: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    """SDK 全局配置：启动时从环境变量一次性读齐，经 DI 注入各组件。"""
+    """SDK 全局配置：启动时从环境变量一次性读齐，由 run_loop 装配到各组件。"""
 
     app_id: str
     app_secret: str

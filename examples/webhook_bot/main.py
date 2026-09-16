@@ -11,7 +11,7 @@
 运行：uv run python examples/webhook_bot/main.py
 """
 
-from qqbotsdk import EventEmitter, EventQueue, Inject, main
+from qqbotsdk import EventEmitter, EventQueue, main
 from qqbotsdk.api import BotApi
 from qqbotsdk.payloads import GroupAtMessage
 
@@ -19,7 +19,7 @@ ee = EventEmitter(EventQueue())
 
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")
-async def on_group_message(msg: GroupAtMessage, api: Inject[BotApi]) -> None:
+async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
     if not (msg.group_openid and msg.id):
         return
     await api.post_group_message(

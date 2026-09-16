@@ -10,7 +10,7 @@
 
 from loguru import logger
 
-from qqbotsdk import EventEmitter, EventQueue, Inject, main
+from qqbotsdk import EventEmitter, EventQueue, main
 from qqbotsdk.api import BotApi
 from qqbotsdk.events import Event
 from qqbotsdk.payloads import C2CMessage, GroupAtMessage
@@ -19,7 +19,7 @@ ee = EventEmitter(EventQueue())
 
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")
-async def on_group_message(msg: GroupAtMessage, api: Inject[BotApi]) -> None:
+async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
     if not (msg.group_openid and msg.id):
         return
 
@@ -41,7 +41,7 @@ async def on_group_message(msg: GroupAtMessage, api: Inject[BotApi]) -> None:
 
 
 @ee.on("GROUP_ADD_ROBOT")
-async def on_robot_added(event: Event, api: Inject[BotApi]) -> None:
+async def on_robot_added(event: Event, api: BotApi) -> None:
     group_openid = event.group_id
     # 入群是事件而非消息：事件 ID 在推送 envelope 顶层 id 字段，
     # 作 event_id 即可在 5 分钟内被动回复欢迎语（拿不到则跳过）
@@ -55,7 +55,7 @@ async def on_robot_added(event: Event, api: Inject[BotApi]) -> None:
 
 
 @ee.on("C2C_MESSAGE_CREATE")
-async def on_c2c_message(msg: C2CMessage, api: Inject[BotApi]) -> None:
+async def on_c2c_message(msg: C2CMessage, api: BotApi) -> None:
     user_openid = msg.user_openid
     if not (user_openid and msg.id):
         return

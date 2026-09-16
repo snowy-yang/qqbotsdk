@@ -9,6 +9,10 @@
 
 - Markdown 与内嵌按钮一等支持：`post_group_message`/`post_c2c_message` 新增 `markdown`/`keyboard` 参数（自动置 msg_type=2，与 content 互斥）；新增 `respond_interaction()` 回应按钮回调；`Interaction` payload 补齐 `chat_type`/`scene`/`group_openid` 等官方字段
 
+### 变更
+
+- **移除 dishka 依赖，改为内置参数注入**：handler 形参直接标注组件类型（`api: BotApi`）即注入，不再需要 `Inject[T]` 包装；组件改在 `run_loop` 显式装配并按类型登记到 `emitter.services`（自定义组件同样登记即可注入）。破坏性变更：`Inject`、`make_container`、`use_container` 随之移除，原 `api: Inject[BotApi]` 写法改为 `api: BotApi`
+
 ### 移除
 
 - 音乐插件示例（`plugins/`、根目录 `main.py`）已拆分为独立的点歌 bot 项目（含 Markdown 卡片、按钮回调与内置短网址多线程下载代理），不再随 SDK 仓库分发

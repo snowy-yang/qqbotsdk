@@ -6,21 +6,19 @@
 
 ```python
 from qqbotsdk import (
-    main, run_loop,          # 入口
+    main, run_loop,          # 入口（组件在 run_loop 显式装配）
     EventEmitter, BaseProtocol, EventQueue,   # 分发层
-    Inject, make_container,  # DI
     Config, Connecter,       # 配置与连接器接口
 )
 ```
 
 | 名称 | 说明 |
 |---|---|
-| `main(emitter=None)` | 同步入口：装配容器并阻塞运行，Ctrl+C 优雅退出 |
+| `main(emitter=None)` | 同步入口：装配组件并阻塞运行，Ctrl+C 优雅退出 |
 | `run_loop(emitter=None)` | 异步入口：`asyncio.run(run_loop(ee))` 的内部实现，可自行 await |
 | `EventEmitter(queue)` | 分发主体，`@ee.on(...)` 注册 handler |
-| `EventQueue()` | 事件/应答队列；自建 emitter 时传入，容器会复用同一实例 |
-| `Inject` | dishka `FromDishka` 别名，handler 参数标注 `Inject[T]` 即注入 T |
-| `make_container(emitter=None)` | 构建 dishka 容器；一般不用直接调，`main` 已封装 |
+| `ee.services` | `dict[type, Any]`，按类型登记可注入组件；`run_loop` 装配 SDK 内置组件，也可登记自定义类型 |
+| `EventQueue()` | 事件/应答队列；自建 emitter 时传入，`run_loop` 复用同一实例 |
 | `Config` | frozen dataclass，环境变量一次性读齐（见下文） |
 | `Connecter` | 连接适配器 Protocol（接口），按 `CONNECTER` 自动选择实现 |
 | `BaseProtocol` | 协议层抽象基类，自定义协议处理器时继承并实现 `register(emitter)` |
@@ -55,7 +53,7 @@ async def handler(...): ...
 |---|---|---|
 | payload dataclass（`payloads` 中的类型） | `Event.typed` 解析对象 | 回退传原始 dict |
 | `Event` | 事件封装对象 | — |
-| `Inject[T]` | DI 容器解析的 T（如 `BotApi`） | 回退传原始 dict |
+| 组件类型（`BotApi`/`Session`/`Config` 等已登记进 `ee.services` 的类型） | 登记的实例 | 回退传原始 dict |
 | 无标注 | 原始事件 dict | — |
 
 ## Event
@@ -91,7 +89,7 @@ async def handler(...): ...
 
 ## BotApi
 
-`from qqbotsdk.api import BotApi`。经 DI 注入（`api: Inject[BotApi]`）。自动附带 `Authorization: QQBot <token>` 鉴权头并刷新 token；HTTP ≥400 抛 `ApiError`。
+`from qqbotsdk.api import BotApi`。经参数注入（`api: BotApi`）。自动附带 `Authorization: QQBot <token>` 鉴权头并刷新 token；HTTP ≥400 抛 `ApiError`。
 
 ### 通用
 
@@ -224,4 +222,4 @@ DirectMessage     # 同 AtMessage
 | `webhook_protocol.py` | op=13 验证应答 |
 | `queue.py` / `session.py` / `token.py` / `crypto.py` | 队列、ws 会话状态、token 缓存、Ed25519 签名 |
 | `model.py` | Opcode、payload 类型、Intent 位掩码 |
-| `di.py` | dishka provider 与 `ADAPTERS` 接线表 |
+| `__init__.py` | `main`/`run_loop` 入口与组件显式装配 |

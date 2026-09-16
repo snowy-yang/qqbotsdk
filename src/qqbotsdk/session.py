@@ -2,7 +2,7 @@
 
 
 class Session:
-    """RESUME 续传所需的状态载体，由 DI 容器以 APP 单例持有。"""
+    """RESUME 续传所需的状态载体，由 run_loop 构造并在 emitter.services 共享。"""
 
     def __init__(self) -> None:
         self.session_id: str | None = None

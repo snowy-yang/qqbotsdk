@@ -14,7 +14,7 @@ flowchart TB
     end
     subgraph 分发层
         Q[("EventQueue")]
-        EE["EventEmitter（路由 / DI 注入 / 异常隔离）"]
+        EE["EventEmitter（路由 / 参数注入 / 异常隔离）"]
     end
     subgraph 协议层
         WSP["WebsocketProtocol（鉴权 / 心跳 / 序列号）"]
@@ -36,7 +36,7 @@ flowchart TB
     WS --> QQ
 ```
 
-组件生命周期由 dishka 容器统一装配（APP scope，无全局单例），依赖关系、数据流与设计决策详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+组件在 `run_loop` 显式装配，并按类型登记到 `emitter.services` 供 handler 参数注入（无全局单例）；依赖关系、数据流与设计决策详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 特性
 
@@ -45,7 +45,7 @@ flowchart TB
 - Webhook 接入自带 Ed25519 验签、op=13 验证应答与 60s TTL 事件去重
 - 事件订阅由项目根目录的 `intents.toml` 控制，将对应事件改为 `true` 即可
 - Markdown 与内嵌按钮一等支持：`post_group_message(..., markdown=..., keyboard=...)` 自动置 msg_type=2，`respond_interaction()` 回应按钮回调
-- 组件生命周期由 dishka DI 容器统一管理，全 SDK 共享一个 HTTP 连接池
+- 组件在 `run_loop` 显式装配（无 DI 框架依赖），全 SDK 共享一个 HTTP 连接池
 
 ## 配置
 
@@ -85,13 +85,12 @@ from qqbotsdk.payloads import GroupAtMessage
 async def on_group_message(msg: GroupAtMessage):
     print(msg.group_openid, msg.user_openid, msg.content)
 
-# 方式三：依赖注入（dishka）
-from qqbotsdk import Inject
+# 方式三：参数注入（按形参标注解析，`BotApi` 等组件由 SDK 装配）
 from qqbotsdk.api import BotApi
 from qqbotsdk.events import Event
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")
-async def handle(event: Event, api: Inject[BotApi]):
+async def handle(event: Event, api: BotApi):
     print(event.user_id, event.group_id, event.content)
     # 被动回复：带 msg_id（群聊 5 分钟/单聊 60 分钟内有效，最多分别回复 5/4 次）；
     # 同一条消息多次回复递增 msg_seq

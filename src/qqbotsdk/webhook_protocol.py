@@ -11,7 +11,6 @@ from .session import Session
 
 
 class WebhookProtocol(BaseProtocol):
-    # 构造签名与 WebsocketProtocol 保持一致，供 ADAPTERS 统一实例化
     def __init__(self, config: Config, queue: EventQueue, session: Session) -> None:
         self._config = config
 
