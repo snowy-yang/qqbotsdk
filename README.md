@@ -9,16 +9,16 @@ QQ 官方机器人 Python SDK（Python 3.13 / asyncio / aiohttp），支持 WebS
 ```mermaid
 flowchart TB
     subgraph 接入层
-        WS["WebsocketConnecter（ws 长连接 / 重连 / 看门狗）"]
+        WS["WebsocketConnecter（ws 长连接 / 重连 / 心跳看门狗）"]
         WH["WebhookConnecter（http 回调 / 验签 / 去重）"]
     end
-    subgraph 分发层
-        Q[("EventQueue")]
-        EE["EventEmitter（路由 / 参数注入 / 异常隔离）"]
-    end
     subgraph 协议层
-        WSP["WebsocketProtocol（鉴权 / 心跳 / 序列号）"]
+        WSP["WebsocketProtocol（握手 / 会话 / 序列号）"]
         WHP["WebhookProtocol（op=13 验证应答）"]
+    end
+    subgraph 分发层
+        Q[("EventQueue<br/>业务事件 op=0")]
+        EE["EventEmitter（路由 / 参数注入 / 异常隔离）"]
     end
     subgraph 业务层
         API["BotApi（REST + ApiError）"]
@@ -26,21 +26,22 @@ flowchart TB
     end
     QQ["QQ 开放平台"]
 
-    WS --> Q
-    WH --> Q
+    WS -. "逐帧 on_frame" .-> WSP
+    WH -. "op=13 逐帧 on_frame" .-> WHP
+    WS -->|"业务事件"| Q
+    WH -->|"业务事件"| Q
     Q --> EE
-    EE <--> WSP
     EE --> USER
     USER --> API
     API --> QQ
     WS --> QQ
 ```
 
-组件在 `run_loop` 显式装配，并按类型登记到 `emitter.services` 供 handler 参数注入（无全局单例）；依赖关系、数据流与设计决策详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+组件在 `run_loop` 显式装配，并按类型登记到 `emitter.services` 供 handler 参数注入（无全局单例）；协议帧由连接适配器交给各自的协议处理器就地处理，只有 op=0 的业务事件经队列进入分发——依赖关系与设计决策详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 特性
 
-- 内置协议处理器（`ws_protocol.py` / `webhook_protocol.py`）：HELLO 鉴权（IDENTIFY/RESUME 自动切换）、apscheduler 定时心跳、READY 会话捕获、INVALID_SESSION 会话失效处理
+- 内置协议处理器（`ws_protocol.py` / `webhook_protocol.py`）：HELLO 鉴权（IDENTIFY/RESUME 自动切换）、READY 会话捕获、INVALID_SESSION 会话失效处理；心跳由连接器按连接生命周期驱动
 - 断线自动重连（指数退避 + 心跳看门狗），重连时自动 RESUME 续传
 - Webhook 接入自带 Ed25519 验签、op=13 验证应答与 60s TTL 事件去重
 - 事件订阅由项目根目录的 `intents.toml` 控制，按大类（Intents 分组）开关，将对应分组改为 `true` 即可

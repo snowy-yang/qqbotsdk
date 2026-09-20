@@ -233,9 +233,10 @@ DirectMessage     # 同 AtMessage
 
 | 模块 | 职责 |
 |---|---|
-| `connecter.py` | `WebsocketConnecter` / `WebhookConnecter`：接入归一为事件流入、reply 流出 |
-| `ws_protocol.py` | IDENTIFY/RESUME 鉴权、apscheduler 心跳、会话序列号 |
+| `connecter.py` | `WebsocketConnecter` / `WebhookConnecter`：接入归一为业务事件流入、出站帧流出 |
+| `protocol.py` | `BaseProtocol` 协议处理器接口（`on_frame`，由连接适配器逐帧调用） |
+| `ws_protocol.py` | IDENTIFY/RESUME 鉴权、会话语义与 `s` 序列号（心跳在 connecter 内） |
 | `webhook_protocol.py` | op=13 验证应答 |
-| `queue.py` / `session.py` / `token.py` / `crypto.py` | 队列、ws 会话状态、token 缓存、Ed25519 签名 |
+| `queue.py` / `session.py` / `token.py` / `crypto.py` | 业务事件通道、ws 会话状态、token 缓存、Ed25519 签名 |
 | `model.py` | Opcode、payload 类型、Intent 位掩码 |
 | `__init__.py` | `main`/`run_loop` 入口与组件显式装配 |
