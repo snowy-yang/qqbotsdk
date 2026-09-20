@@ -19,7 +19,7 @@ from qqbotsdk import (
 | `run_loop(emitter=None)` | 异步入口：`asyncio.run(run_loop(ee))` 的内部实现，可自行 await |
 | `EventEmitter(queue=None)` | 分发主体，`@ee.on(..., background=True)` 注册 handler（可选后台并发）；`queue` 不传自动创建 |
 | `ee.services` | `dict[type, Any]`，按类型登记可注入组件；`run_loop` 装配 SDK 内置组件，也可登记自定义类型 |
-| `EventQueue()` | 事件/应答队列；`EventEmitter` 默认自建，需多处共享时手动传入（`ee.queue` 取实例） |
+| `EventQueue()` | 业务事件通道（连接层 → 分发层，单向）；`EventEmitter` 默认自建，需多处共享时手动传入（`ee.queue` 取实例） |
 | `Config` | frozen dataclass，环境变量一次性读齐（见下文） |
 | `Connecter` | 连接适配器 Protocol（接口），按 `CONNECTER` 自动选择实现 |
 | `BaseProtocol` | 协议处理器抽象基类（`protocol.py`），自定义接入方式时继承并实现 `on_frame(payload)` |

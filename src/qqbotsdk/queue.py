@@ -1,4 +1,8 @@
-"""事件/应答队列：连接层与分发层之间唯一的跨任务通道。"""
+"""事件队列：连接层 → 分发层的单向跨任务通道。
+
+只承载业务事件（op=0）。协议帧由连接适配器就地处理，出站帧（ws 心跳与
+协议应答）由适配器自己缓冲，都不经过这里。
+"""
 
 from asyncio import Queue
 
@@ -6,20 +10,13 @@ from .model import Payload
 
 
 class EventQueue:
-    """连接层与分发层之间的事件/应答通道。"""
+    """连接层投递、分发层消费的业务事件通道。"""
 
     def __init__(self) -> None:
         self.msg_queue: Queue[Payload] = Queue()
-        self.reply_queue: Queue[Payload] = Queue()
 
     async def put_event(self, item: Payload) -> None:
         await self.msg_queue.put(item)
 
     async def get_event(self) -> Payload:
         return await self.msg_queue.get()
-
-    async def put_reply(self, item: Payload) -> None:
-        await self.reply_queue.put(item)
-
-    async def get_reply(self) -> Payload:
-        return await self.reply_queue.get()

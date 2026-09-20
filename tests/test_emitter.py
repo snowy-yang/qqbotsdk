@@ -4,7 +4,7 @@ import pytest
 
 from qqbotsdk.emitter import EventEmitter
 from qqbotsdk.events import Event
-from qqbotsdk.model import Opcode, payload_of
+from qqbotsdk.model import Opcode
 from qqbotsdk.payloads import GroupAtMessage
 from qqbotsdk.queue import EventQueue
 from qqbotsdk.session import Session
@@ -40,16 +40,16 @@ async def test_handler_exception_is_isolated():
 
 @pytest.mark.asyncio
 async def test_protocol_frame_never_reaches_business_handler():
-    """协议帧改由适配器的协议处理器就近处理，不再经 emitter 回流应答。"""
-    queue = EventQueue()
-    emitter = EventEmitter(queue)
+    """协议帧不进分发路径：即使注册了同名 handler 也不该被调用。"""
+    emitter = EventEmitter()
+    called: list[object] = []
 
     @emitter.on(Opcode.HEARTBEAT)
-    async def beat(_):
-        return payload_of(Opcode.HEARTBEAT, 42)
+    async def beat(d):
+        called.append(d)
 
     await emitter.emit({"op": Opcode.HEARTBEAT, "d": 0})
-    assert queue.reply_queue.empty()
+    assert called == []
 
 
 @pytest.mark.asyncio

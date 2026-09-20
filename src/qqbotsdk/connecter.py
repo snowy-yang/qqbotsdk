@@ -63,6 +63,9 @@ class WebsocketConnecter:
         self._session = session
         self._queue = queue
         self._protocol = protocol
+        # 出站帧缓冲（心跳 + 协议应答）：由 reply_helper 单任务发送，
+        # 维持 aiohttp ws 单写者不变量，生产者（心跳）也不会被发送阻塞
+        self._outbound: asyncio.Queue[Payload] = asyncio.Queue()
 
     async def run(self) -> None:
         backoff: float = 1
@@ -145,7 +148,7 @@ class WebsocketConnecter:
             # 会话重置在下面 break 之前已同步完成，重连不会误 RESUME 死会话。
             response = await self._protocol.on_frame(data)
             if response is not None:
-                await self._queue.put_reply(cast(Payload, response))
+                await self._outbound.put(cast(Payload, response))
             if op == Opcode.DISPATCH:
                 await self._queue.put_event(data)
 
@@ -159,12 +162,12 @@ class WebsocketConnecter:
         interval = await interval_fut
         while True:
             await asyncio.sleep(interval)
-            # 服务端不会推送 op=1，心跳只由本任务经 reply 队列发出
-            await self._queue.put_reply(payload_of(Opcode.HEARTBEAT, self._session.seq))
+            # 服务端不会推送 op=1，心跳只由本任务投进出站缓冲
+            await self._outbound.put(payload_of(Opcode.HEARTBEAT, self._session.seq))
 
     async def reply_helper(self, ws: aiohttp.ClientWebSocketResponse) -> None:
         while not ws.closed:
-            payload: Payload = await self._queue.get_reply()
+            payload = await self._outbound.get()
             body = {k: v for k, v in payload.items() if v != NOT_SET}
             try:
                 await ws.send_json(body)

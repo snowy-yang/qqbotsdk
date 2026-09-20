@@ -30,6 +30,7 @@
 - 事件分发热路径减负：`emit()` 先取事件名、无 listener 时不再构造 `Event`（每条未订阅事件/协议帧省一次对象与 dict 拷贝）；`Event.data` 改为惰性拷贝（只用 `.typed`/`.raw` 的 handler 不再触发 `dict(d)`）
 - ws 重连收尾补 `await`：取消 `reply`/`heartbeat` 任务后 `gather(..., return_exceptions=True)` 取回结果，避免 "Task exception was never retrieved" 并确保它们在下一轮重连前真正停下
 - `EventQueue.put_event`/`put_reply` 去掉多余的 `return await`
+- `EventQueue` 收敛为**单向业务事件通道**：删除 `reply_queue` 与 `put_reply`/`get_reply`（协议分流后引用它的只剩 `WebsocketConnecter`）。ws 的出站帧（心跳 + 协议应答）改由 `WebsocketConnecter` 私有出站缓冲承载、`reply_helper` 单任务发送（维持 aiohttp ws 单写者不变量）；webhook 的应答直接写 HTTP 响应体。破坏性变更：`EventQueue.reply_queue` 与 `put_reply`/`get_reply` 不再存在
 
 ### 移除
 

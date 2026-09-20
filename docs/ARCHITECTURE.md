@@ -17,7 +17,7 @@ flowchart TB
     end
 
     subgraph 分发层["分发层 emitter.py"]
-        Q[("EventQueue\nmsg_queue / reply_queue")]
+        Q[("EventQueue\n业务事件通道")]
         EE["EventEmitter\nop=0/t 路由 + 参数注入\nhandler 异常隔离\nbackground 后台并发"]
     end
 
@@ -107,7 +107,7 @@ sequenceDiagram
 ## 关键设计决策
 
 1. **业务事件走管线，协议帧走专有处理器**：只有 op=0 的业务事件经 `EventQueue` 异步流转给 `EventEmitter` 分发；HELLO/READY/INVALID_SESSION/op=13 等协议帧由 connecter 逐帧调用其专有协议处理器（`BaseProtocol.on_frame`）就地处理。这样用户 handler 不会看到协议帧，且"断线前重置会话"这类时序不再取决于分发泵的进度——`INVALID_SESSION` 的会话清空在 connecter `break` 重连前已同步完成，不会误 RESUME 一个已死会话。代价是多一跳队列延迟（可忽略）。
-2. **协议层只管会话语义，心跳归传输层**：`WebsocketProtocol` 负责 IDENTIFY/RESUME/序列号（说什么），`WebsocketConnecter` 负责连接与心跳（怎么保活）——心跳任务随连接生灭（HELLO 给出间隔后启动，断线即取消），断线期间不在 reply 队列堆积过期心跳，也免去了调度器的生命周期管理。协议处理器的应答经 `on_frame` 返回值由 connecter 写回（ws 走 reply 队列，webhook 走 HTTP 响应体）。
+2. **协议层只管会话语义，心跳归传输层**：`WebsocketProtocol` 负责 IDENTIFY/RESUME/序列号（说什么），`WebsocketConnecter` 负责连接与心跳（怎么保活）——心跳任务随连接生灭（HELLO 给出间隔后启动，断线即取消），断线期间不在出站缓冲堆积过期心跳，也免去了调度器的生命周期管理。协议处理器的应答经 `on_frame` 返回值交给 connecter：ws 与心跳一起进 connecter 私有的出站缓冲、由单任务发送（维持 ws 单写者不变量），webhook 则直接写进 HTTP 响应体。
 3. **看门狗两层互补**（见 `connecter.py` 模块注释）：静默超时抓连接彻底失联，ACK 期限检查抓"有事件流但心跳已死"。阈值 `_SILENCE_FACTOR=1.1`、`_ACK_FACTOR=1.2` 是按 ACK 自然节奏校准的，**不能压到 1× 整**，否则正常抖动会周期性误杀（误杀由 RESUME 兜底，不丢消息）。重连退避只在连接稳定存活（`_STABLE_SECONDS`）后才归一，抖动的服务端不会被 1s 间隔反复探测。
 4. **handler 异常就地隔离**：`_invoke` 捕获记日志，`dispatch` 主循环另有兜底；单条事件的单个 handler 失败不影响进程。`background=True` 的 handler 进后台任务（emit 不等它），任务由 emitter 持强引用、`close()` 统一取消。
 5. **注入约定**：handler 参数按形参标注解析——`payloads.py` 里的 dataclass → 解析后的 payload 对象；`Event` → 事件封装；登记进 `emitter.services` 的组件类型（如 `BotApi`）→ 实例；未标注或未登记 → 回退传**原始 d**。解析是纯同步查表（`get_type_hints` + 签名缓存），无框架、无运行时魔法。签名与类型标注每个 handler 只解析一次并缓存，但 `services` 命中在每条事件时实时判定，保证"先注册 handler、后登记组件"的装配顺序可用。
