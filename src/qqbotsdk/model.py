@@ -1,7 +1,7 @@
 """协议模型：Opcode、payload 及各事件 d 字段的 TypedDict、Intent 位掩码。
 
 Payload 里 `NOT_SET` 哨兵标记"外发时应省略"的字段，由
-WebsocketConnecter.reply_helper 统一过滤。
+WebsocketConnecter.send_helper 统一过滤。
 """
 
 from enum import IntEnum, IntFlag

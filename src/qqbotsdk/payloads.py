@@ -8,7 +8,7 @@ handler 直接标注具体类型即可拿到解析后的对象（如
 
 from dataclasses import dataclass, fields
 from types import UnionType
-from typing import Union, get_args, get_origin
+from typing import Union, get_args, get_origin, get_type_hints
 
 
 @dataclass(slots=True)
@@ -339,15 +339,34 @@ def _is_author_type(annotation: object) -> bool:
     return False
 
 
+# 字段名与标注都是类的静态属性，解析计划只需构建一次。每次事件都跑一遍
+# dataclasses.fields 与联合类型解包，是热路径上最贵的一步。
+_PARSE_PLANS: dict[type, tuple[tuple[str, bool], ...]] = {}
+
+
+def _parse_plan(cls: type) -> tuple[tuple[str, bool], ...]:
+    """(字段名, 该字段的 dict 值是否需解析成 Author)，按定义顺序。"""
+    if (plan := _PARSE_PLANS.get(cls)) is None:
+        hints = get_type_hints(cls)
+        plan = tuple((f.name, _is_author_type(hints[f.name])) for f in fields(cls))
+        _PARSE_PLANS[cls] = plan
+    return plan
+
+
 def _build(cls: type, d: dict) -> object:
+    """按解析计划填充 dataclass。
+
+    d 里未收录的字段一律忽略——线上 payload 会带新增或未声明的字段
+    （如 author.union_openid），直接透传会让 dataclass 构造报错。
+    """
     kwargs = {}
-    for f in fields(cls):
-        if f.name not in d:
+    for name, nested_author in _parse_plan(cls):
+        if name not in d:
             continue
-        value = d[f.name]
-        if isinstance(value, dict) and _is_author_type(f.type):
+        value = d[name]
+        if nested_author and isinstance(value, dict):
             value = _build(Author, value)
-        kwargs[f.name] = value
+        kwargs[name] = value
     return cls(**kwargs)
 
 

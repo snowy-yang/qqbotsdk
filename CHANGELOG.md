@@ -30,7 +30,11 @@
 - 事件分发热路径减负：`emit()` 先取事件名、无 listener 时不再构造 `Event`（每条未订阅事件/协议帧省一次对象与 dict 拷贝）；`Event.data` 改为惰性拷贝（只用 `.typed`/`.raw` 的 handler 不再触发 `dict(d)`）
 - ws 重连收尾补 `await`：取消 `reply`/`heartbeat` 任务后 `gather(..., return_exceptions=True)` 取回结果，避免 "Task exception was never retrieved" 并确保它们在下一轮重连前真正停下
 - `EventQueue.put_event`/`put_reply` 去掉多余的 `return await`
-- `EventQueue` 收敛为**单向业务事件通道**：删除 `reply_queue` 与 `put_reply`/`get_reply`（协议分流后引用它的只剩 `WebsocketConnecter`）。ws 的出站帧（心跳 + 协议应答）改由 `WebsocketConnecter` 私有出站缓冲承载、`reply_helper` 单任务发送（维持 aiohttp ws 单写者不变量）；webhook 的应答直接写 HTTP 响应体。破坏性变更：`EventQueue.reply_queue` 与 `put_reply`/`get_reply` 不再存在
+- `EventQueue` 收敛为**单向业务事件通道**：删除 `reply_queue` 与 `put_reply`/`get_reply`（协议分流后引用它的只剩 `WebsocketConnecter`）。ws 的出站帧（心跳 + 协议应答）改由 `WebsocketConnecter` 私有出站缓冲承载、`send_helper` 单任务发送（维持 aiohttp ws 单写者不变量）；webhook 的应答直接写 HTTP 响应体。破坏性变更：`EventQueue.reply_queue` 与 `put_reply`/`get_reply` 不再存在
+- **移除 pyee 依赖**：`EventEmitter` 改为内置的 `事件名 → handler 列表` 注册表（`on()` 追加、`emit()` 顺序遍历），不再需要 pyee 的 `once`/`new_listener`/错误事件机制。注册语义保持不变（同函数重复注册只生效一次、按注册顺序串行执行）。破坏性变更：`once`/`remove_listener` 等 pyee 装饰性 API 不再提供（SDK 与公开文档本就不涉及）
+- 热路径去掉重复计算（不改语义）：`payloads` 按类缓存解析计划（不再每次事件重跑 `dataclasses.fields` 与联合类型解包，实测 7.5µs→2.5µs；未收录字段照旧忽略）；`crypto` 按 AppSecret 缓存派生私钥（验签每请求省约 40µs 的密钥派生）
+- `WebsocketConnecter` 的 `reply_helper` 更名为 `send_helper`（它从出站缓冲取帧发送，原名会让人以为还有 reply 队列）；`Connecter` 由 `typing.Protocol` 改为 `abc.ABC`，与 `BaseProtocol` 的接口风格一致
+- webhook 去重改为摊还清理：过期判定按当前 id 做（O(1)，TTL 外重发的同一 id 仍按新事件处理），整表清过期项只在表长到阈值时执行（原先每请求全表扫描，O(n)）
 
 ### 移除
 

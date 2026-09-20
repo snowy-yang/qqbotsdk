@@ -1,6 +1,7 @@
 from qqbotsdk.emitter import EventEmitter
 from qqbotsdk.model import Opcode
 from qqbotsdk.payloads import (
+    _PARSE_PLANS,
     C2CMessage,
     GroupAtMessage,
     Interaction,
@@ -10,7 +11,33 @@ from qqbotsdk.payloads import (
 from qqbotsdk.queue import EventQueue
 
 
-def test_parse_group_at_message():
+def test_parse_ignores_unknown_fields():
+    """回归：线上 payload 会带未收录字段（如 author.union_openid），
+    解析必须忽略而非透传给 dataclass 构造（那会直接报错）。"""
+    msg = parse_event(
+        "GROUP_AT_MESSAGE_CREATE",
+        {
+            "id": "msgid-9",
+            "content": "hi",
+            "group_openid": "G1",
+            "unknown_top_level": {"whatever": 1},
+            "author": {"member_openid": "M9", "union_openid": "U-should-be-dropped"},
+        },
+    )
+    assert isinstance(msg, GroupAtMessage)
+    assert msg.content == "hi"
+    assert msg.author is not None and msg.author.member_openid == "M9"
+
+
+def test_parse_plan_is_cached_per_class():
+    """解析计划按类缓存，且二次解析结果与首次一致。"""
+    d = {"content": "x", "group_openid": "G"}
+    first = parse_event("GROUP_AT_MESSAGE_CREATE", d)
+    second = parse_event("GROUP_AT_MESSAGE_CREATE", d)
+    assert isinstance(first, GroupAtMessage) and isinstance(second, GroupAtMessage)
+    assert first.content == second.content == "x"
+    assert GroupAtMessage in _PARSE_PLANS
+
     msg = parse_event(
         "GROUP_AT_MESSAGE_CREATE",
         {

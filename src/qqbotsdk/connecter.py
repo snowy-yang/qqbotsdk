@@ -15,8 +15,9 @@
 """
 
 import asyncio
+from abc import ABC, abstractmethod
 from time import monotonic
-from typing import Protocol, cast
+from typing import cast
 
 import aiohttp
 import ujson
@@ -32,7 +33,10 @@ from .session import Session
 from .token import AccessToken
 
 
-class Connecter(Protocol):
+class Connecter(ABC):
+    """连接适配器接口：两种接入方式都实现 `run()` 常驻运行。"""
+
+    @abstractmethod
     async def run(self) -> None: ...
 
 
@@ -40,7 +44,7 @@ class RateLimitError(RuntimeError):
     """gateway 接口触发频率限制（code=100017）。"""
 
 
-class WebsocketConnecter:
+class WebsocketConnecter(Connecter):
     # 看门狗阈值（× 心跳间隔）：贴着 ACK 的自然节奏（1×）跑，误杀由 RESUME 兜底不丢消息；
     # 不能压到 1× 整——ACK 的自然间隔就是 1×，正常抖动会贴边误杀；TCP 下丢包表现为延迟而非静默
     _SILENCE_FACTOR = 1.1
@@ -63,7 +67,7 @@ class WebsocketConnecter:
         self._session = session
         self._queue = queue
         self._protocol = protocol
-        # 出站帧缓冲（心跳 + 协议应答）：由 reply_helper 单任务发送，
+        # 出站帧缓冲（心跳 + 协议应答）：由 send_helper 单任务发送，
         # 维持 aiohttp ws 单写者不变量，生产者（心跳）也不会被发送阻塞
         self._outbound: asyncio.Queue[Payload] = asyncio.Queue()
 
@@ -107,16 +111,16 @@ class WebsocketConnecter:
             # HELLO 才给出心跳间隔；receive 解析到后经 Future 交给心跳任务
             interval: asyncio.Future[float] = asyncio.get_running_loop().create_future()
             receive = asyncio.create_task(self.receive_helper(ws, interval))
-            reply = asyncio.create_task(self.reply_helper(ws))
+            send = asyncio.create_task(self.send_helper(ws))
             heartbeat = asyncio.create_task(self.heartbeat_helper(interval))
             try:
                 await receive
             finally:
-                reply.cancel()
+                send.cancel()
                 heartbeat.cancel()
                 # 取回被取消任务的结果，避免 "Task exception was never retrieved"，
                 # 也确保它们在下一轮重连前真正停下
-                await asyncio.gather(reply, heartbeat, return_exceptions=True)
+                await asyncio.gather(send, heartbeat, return_exceptions=True)
             logger.info("WebSocket 已断开")
         return monotonic() - started
 
@@ -165,7 +169,8 @@ class WebsocketConnecter:
             # 服务端不会推送 op=1，心跳只由本任务投进出站缓冲
             await self._outbound.put(payload_of(Opcode.HEARTBEAT, self._session.seq))
 
-    async def reply_helper(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+    async def send_helper(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+        """唯一的 ws 写者：从出站缓冲取帧发送（保持 aiohttp 单写者约束）。"""
         while not ws.closed:
             payload = await self._outbound.get()
             body = {k: v for k, v in payload.items() if v != NOT_SET}
@@ -175,8 +180,10 @@ class WebsocketConnecter:
                 logger.warning(f"WebSocket 发送失败，丢弃该帧: {body} ({e})")
 
 
-class WebhookConnecter:
+class WebhookConnecter(Connecter):
     _DEDUP_TTL = 60
+    # 去重表长度达到该值才做一次过期清理（摊还 O(1)，避免每请求全表扫描）
+    _DEDUP_SWEEP_AT = 1024
 
     def __init__(
         self,
@@ -212,13 +219,21 @@ class WebhookConnecter:
             await runner.cleanup()
 
     def _duplicated(self, event_id: str | None) -> bool:
+        """TTL 内见过的同 id 视为重复推送。
+
+        过期判断按当前 id 单独做（O(1)），保证 TTL 外重发的同一 id 会被当作
+        新事件处理；整表清过期项只在表长到阈值时做一次，避免每请求 O(n) 扫描。
+        """
         if not event_id:
             return False
         now = monotonic()
-        for key in [k for k, ts in self._seen.items() if now - ts > self._DEDUP_TTL]:
-            del self._seen[key]
-        if event_id in self._seen:
+        seen_at = self._seen.get(event_id)
+        if seen_at is not None and now - seen_at <= self._DEDUP_TTL:
             return True
+        if len(self._seen) >= self._DEDUP_SWEEP_AT:
+            self._seen = {
+                k: ts for k, ts in self._seen.items() if now - ts <= self._DEDUP_TTL
+            }
         self._seen[event_id] = now
         return False
 

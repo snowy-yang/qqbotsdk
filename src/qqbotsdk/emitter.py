@@ -18,7 +18,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, get_type_hints, overload
 
 from loguru import logger
-from pyee.asyncio import AsyncIOEventEmitter
 
 from .events import Event
 from .model import Opcode, Payload
@@ -30,8 +29,9 @@ Handler = TypeVar("Handler", bound=Callable[..., Awaitable[Any]])
 
 class EventEmitter:
     def __init__(self, queue: EventQueue | None = None) -> None:
-        self._ee = AsyncIOEventEmitter()
         self._queue = queue if queue is not None else EventQueue()
+        # 事件名 → handler（按注册顺序）；同名事件重复注册同一函数只生效一次
+        self._handlers: dict[str, list[Callable[..., Awaitable[Any]]]] = {}
         self.services: dict[type, Any] = {}
         # handler → (类型标注, 形参名)：签名解析较贵，缓存后每条事件只查表
         self._signatures: dict[
@@ -65,7 +65,9 @@ class EventEmitter:
         name = event.name if isinstance(event, Opcode) else event
 
         def decorator(fn: Handler) -> Handler:
-            self._ee.on(name, fn)
+            handlers = self._handlers.setdefault(name, [])
+            if fn not in handlers:
+                handlers.append(fn)
             if background:
                 self._background.add(fn)
             return fn
@@ -93,7 +95,7 @@ class EventEmitter:
                 logger.exception(f"事件分发异常，已跳过: {data} ({e})")
 
     async def emit(self, data: Payload) -> None:
-        # 先取事件名，无 listener 就不必构造 Event（每条未订阅/协议帧都省一次拷贝）
+        # 先取事件名，无 handler 就不必构造 Event（每条未订阅事件都省一次拷贝）
         op = data.get("op")
         if op != Opcode.DISPATCH:
             logger.warning(f"非业务事件不应进分发队列，已跳过: {data}")
@@ -103,12 +105,13 @@ class EventEmitter:
             logger.warning(f"业务事件缺少 t 字段，已跳过: {data}")
             return
 
-        listeners = self._ee.listeners(t)
-        if not listeners:
+        handlers = self._handlers.get(t)
+        if not handlers:
             return
 
         event = Event(data)
-        for fn in listeners:
+        # 遍历快照：handler 在分发过程中注册新 handler，不影响本次分发
+        for fn in list(handlers):
             if fn in self._background:
                 self._spawn(fn, event)
             else:

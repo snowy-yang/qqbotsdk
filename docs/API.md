@@ -21,7 +21,7 @@ from qqbotsdk import (
 | `ee.services` | `dict[type, Any]`，按类型登记可注入组件；`run_loop` 装配 SDK 内置组件，也可登记自定义类型 |
 | `EventQueue()` | 业务事件通道（连接层 → 分发层，单向）；`EventEmitter` 默认自建，需多处共享时手动传入（`ee.queue` 取实例） |
 | `Config` | frozen dataclass，环境变量一次性读齐（见下文） |
-| `Connecter` | 连接适配器 Protocol（接口），按 `CONNECTER` 自动选择实现 |
+| `Connecter` | 连接适配器抽象基类（ABC），按 `CONNECTER` 自动选择实现 |
 | `BaseProtocol` | 协议处理器抽象基类（`protocol.py`），自定义接入方式时继承并实现 `on_frame(payload)` |
 
 子包按需导入：
@@ -45,6 +45,7 @@ async def slow(...): ...
 ```
 
 - **只分发业务事件**：`EventEmitter` 只处理 op=0（DISPATCH）事件，按 payload 的 `t` 名路由。协议帧（HELLO/READY/INVALID_SESSION/op=13 等）由各接入方式的协议处理器（`WebsocketProtocol`/`WebhookProtocol`）在连接器内就地处理，不进事件队列、也不会触达你的 handler。
+- **注册与顺序**：同一函数对同一事件重复注册只生效一次；handler 按注册顺序串行执行（`background=True` 的除外）。
 - **异常隔离**：handler 异常就地记录（loguru），不影响同事件其他 handler 与主循环。
 - **后台并发**：`background=True` 的 handler 进后台任务，emit 不等它；同一事件内失去先后保证，仅用于业务 handler。`run_loop` 退出时统一取消在飞后台任务（`ee.close()`）。
 - 业务 handler 的返回值不回流；回复消息请在 handler 里显式调 `BotApi`。

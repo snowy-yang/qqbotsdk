@@ -21,6 +21,38 @@ def test_sequence_only_moves_forward():
 
 
 @pytest.mark.asyncio
+async def test_same_handler_registered_twice_runs_once():
+    """同名事件重复注册同一函数只生效一次（沿用 pyee 的语义）。"""
+    emitter = EventEmitter()
+    calls: list[str] = []
+
+    async def handler(_):
+        calls.append("hit")
+
+    emitter.on("READY", handler)
+    emitter.on("READY", handler)
+    await emitter.emit({"op": Opcode.DISPATCH, "t": "READY", "d": {}})
+    assert calls == ["hit"]
+
+
+@pytest.mark.asyncio
+async def test_handlers_run_in_registration_order():
+    emitter = EventEmitter()
+    order: list[int] = []
+
+    @emitter.on("READY")
+    async def first(_):
+        order.append(1)
+
+    @emitter.on("READY")
+    async def second(_):
+        order.append(2)
+
+    await emitter.emit({"op": Opcode.DISPATCH, "t": "READY", "d": {}})
+    assert order == [1, 2]
+
+
+@pytest.mark.asyncio
 async def test_handler_exception_is_isolated():
     queue = EventQueue()
     emitter = EventEmitter(queue)
