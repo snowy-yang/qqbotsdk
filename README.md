@@ -100,8 +100,9 @@ async def handle(event: Event, api: BotApi):
         msg_id=event.message_id,
     )   # 失败抛 ApiError；富媒体先 upload_group_file 拿 file_info
 
-# 业务事件（op=0）处理器的返回值不会回流；
-# 协议层（op≠0）由 ws_protocol / webhook_protocol 的类处理，经 reply 队列发回。
+# 业务事件（op=0）才进分发，返回值不回流，回复请显式调 BotApi；
+# 协议帧（HELLO/READY/INVALID_SESSION/op=13）由各接入方式的协议处理器
+# 在连接器内就地处理，不进队列、也不会触达 handler。
 # 单个 handler 抛异常不会影响其他 handler 和主循环，异常会被记录。
 
 if __name__ == "__main__":

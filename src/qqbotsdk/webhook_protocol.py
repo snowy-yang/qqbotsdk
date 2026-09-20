@@ -1,11 +1,15 @@
-"""Webhook 接入的协议层：op=13 验证请求应答（签名 event_ts + plain_token）。"""
+"""Webhook 接入的协议层：op=13 验证请求应答（签名 event_ts + plain_token）。
 
-from typing import override
+由 `WebhookConnecter` 在验签前就地调用；返回的应答体由连接器直接写回 HTTP
+响应，不走 reply 队列。
+"""
+
+from typing import Any, cast, override
 
 from .config import Config
 from .crypto import sign_msg
-from .emitter import BaseProtocol, EventEmitter
-from .model import Opcode, ValidationData
+from .model import Opcode, Payload, ValidationData
+from .protocol import BaseProtocol
 
 
 class WebhookProtocol(BaseProtocol):
@@ -13,10 +17,13 @@ class WebhookProtocol(BaseProtocol):
         self._config = config
 
     @override
-    def register(self, emitter: EventEmitter) -> None:
-        emitter.on(Opcode.VALIDATION)(self.validation)
-
-    async def validation(self, data: ValidationData) -> dict[str, str]:
+    async def on_frame(self, payload: Payload) -> dict[str, Any] | None:
+        if payload.get("op") != Opcode.VALIDATION:
+            return None
+        d = payload.get("d")
+        if not isinstance(d, dict):
+            return None
+        data = cast(ValidationData, d)
         return {
             "plain_token": data["plain_token"],
             "signature": sign_msg(

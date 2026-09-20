@@ -1,8 +1,10 @@
-"""WebSocket 接入的协议层：IDENTIFY/RESUME 鉴权、序列号跟踪与会话保持。
+"""WebSocket 接入的协议层：握手鉴权、会话捕获与失效重置。
 
-心跳与连接生命周期归 WebsocketConnecter；本层只负责会话语义——
-识别 HELLO 后按有无 session_id 决定 RESUME 续传或 IDENTIFY 新建，
-收到不可恢复的 INVALID_SESSION（d=false）才清空会话重新 IDENTIFY。
+由 `WebsocketConnecter` 逐帧调用，不经过事件队列：HELLO → 按有无
+session_id 决定 RESUME 续传或 IDENTIFY 新建并返回应答；READY → 捕获
+session_id（该帧同时是 op=0，仍会入队分发给用户的 READY handler）；
+INVALID_SESSION → d=false 时清空会话，使重连走 IDENTIFY；每条帧的 s
+在此更新，供心跳与 RESUME 取用。
 """
 
 from tomllib import load
@@ -11,16 +13,8 @@ from typing import override
 from loguru import logger
 
 from .config import Config
-from .emitter import BaseProtocol, EventEmitter
-from .model import (
-    IdentifyData,
-    Intent,
-    Opcode,
-    Payload,
-    ResumeData,
-    payload_of,
-)
-from .payloads import Ready
+from .model import IdentifyData, Intent, Opcode, Payload, ResumeData, payload_of
+from .protocol import BaseProtocol
 from .session import Session
 from .token import AccessToken
 
@@ -67,18 +61,21 @@ class WebsocketProtocol(BaseProtocol):
         self._token = token
 
     @override
-    def register(self, emitter: EventEmitter) -> None:
-        emitter.on(Opcode.HELLO)(self.identify)
-        emitter.on("READY")(self.ready)
-        emitter.on(Opcode.INVALID_SESSION)(self.invalid_session)
-
-    @override
-    def on_payload(self, payload: Payload) -> None:
+    async def on_frame(self, payload: Payload) -> Payload | None:
         seq = payload.get("s")
         if isinstance(seq, int):
             self._session.update_sequence(seq)
 
-    async def identify(self) -> Payload:
+        op = payload.get("op")
+        if op == Opcode.HELLO:
+            return await self._handshake()
+        if op == Opcode.INVALID_SESSION:
+            self._invalid_session(payload.get("d"))
+        elif op == Opcode.DISPATCH and payload.get("t") == "READY":
+            self._ready(payload.get("d"))
+        return None
+
+    async def _handshake(self) -> Payload:
         access_token = await self._token.get_access_token()
 
         d: ResumeData | IdentifyData
@@ -101,11 +98,15 @@ class WebsocketProtocol(BaseProtocol):
 
         return payload_of(op, d)
 
-    async def ready(self, ready: Ready) -> None:
-        self._session.session_id = ready.session_id
-        logger.info("会话已建立（READY）")
+    def _ready(self, d: object) -> None:
+        if isinstance(d, dict):
+            session_id = d.get("session_id")
+            if isinstance(session_id, str):
+                self._session.session_id = session_id
+                logger.info("会话已建立（READY）")
 
-    async def invalid_session(self, resumable: bool) -> None:
-        if not resumable:
+    def _invalid_session(self, d: object) -> None:
+        # 官方语义：d 为布尔，true=可 RESUME 续传
+        if not d:
             self._session.session_id = None
             logger.warning("会话已失效，下次连接将重新 IDENTIFY")

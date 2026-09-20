@@ -51,8 +51,7 @@ def event_body(event_id: str, content: str) -> dict[str, Any]:
 async def test_webhook_end_to_end():
     config = make_config(0)
     emitter = EventEmitter()
-    emitter.register_protocol(WebhookProtocol(config))
-    connecter = WebhookConnecter(config, emitter.queue, emitter.handle)
+    connecter = WebhookConnecter(config, emitter.queue, WebhookProtocol(config))
 
     received: list[GroupAtMessage] = []
 

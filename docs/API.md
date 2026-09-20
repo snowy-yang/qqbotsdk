@@ -7,7 +7,8 @@
 ```python
 from qqbotsdk import (
     main, run_loop,          # 入口（组件在 run_loop 显式装配）
-    EventEmitter, BaseProtocol, EventQueue,   # 分发层
+    EventEmitter, EventQueue,   # 分发层
+    BaseProtocol,            # 协议处理器接口（自定义接入方式时继承）
     Config, Connecter,       # 配置与连接器接口
 )
 ```
@@ -21,7 +22,7 @@ from qqbotsdk import (
 | `EventQueue()` | 事件/应答队列；`EventEmitter` 默认自建，需多处共享时手动传入（`ee.queue` 取实例） |
 | `Config` | frozen dataclass，环境变量一次性读齐（见下文） |
 | `Connecter` | 连接适配器 Protocol（接口），按 `CONNECTER` 自动选择实现 |
-| `BaseProtocol` | 协议层抽象基类，自定义协议处理器时继承并实现 `register(emitter)` |
+| `BaseProtocol` | 协议处理器抽象基类（`protocol.py`），自定义接入方式时继承并实现 `on_frame(payload)` |
 
 子包按需导入：
 
@@ -36,18 +37,17 @@ from qqbotsdk.events import Event
 ```python
 ee = EventEmitter()
 
-@ee.on("GROUP_AT_MESSAGE_CREATE")     # DISPATCH 事件用 t 名
-@ee.on("INVALID_SESSION")             # 协议事件用 Opcode 名（IDENTIFY/RESUME/HEARTBEAT/...）
+@ee.on("GROUP_AT_MESSAGE_CREATE")     # 业务事件用 t 名（仅 op=0 会分发到这里）
 async def handler(...): ...
 
 @ee.on("GROUP_AT_MESSAGE_CREATE", background=True)   # 后台并发执行，不阻塞事件流
 async def slow(...): ...
 ```
 
-- **事件命名**：op=0（DISPATCH）按 payload 的 `t` 名路由；其余按 `Opcode` 名路由。协议事件（op≠0）已由内置协议层处理，一般只需监听业务事件；handler 返回 dict 时协议事件的返回值会回流给 ws 发送（业务事件不会）。
+- **只分发业务事件**：`EventEmitter` 只处理 op=0（DISPATCH）事件，按 payload 的 `t` 名路由。协议帧（HELLO/READY/INVALID_SESSION/op=13 等）由各接入方式的协议处理器（`WebsocketProtocol`/`WebhookProtocol`）在连接器内就地处理，不进事件队列、也不会触达你的 handler。
 - **异常隔离**：handler 异常就地记录（loguru），不影响同事件其他 handler 与主循环。
-- **后台并发**：`background=True` 的 handler 进后台任务，emit 不等它；同一事件内失去先后保证，返回值不回流，仅用于业务 handler。`run_loop` 退出时统一取消在飞后台任务（`ee.close()`）。
-- **`ee.handle(payload)`**：同步分发并返回首个 handler 的非空返回值，供协议层应答 op=13 等场景，业务代码不用。
+- **后台并发**：`background=True` 的 handler 进后台任务，emit 不等它；同一事件内失去先后保证，仅用于业务 handler。`run_loop` 退出时统一取消在飞后台任务（`ee.close()`）。
+- 业务 handler 的返回值不回流；回复消息请在 handler 里显式调 `BotApi`。
 
 ### handler 参数注入约定
 

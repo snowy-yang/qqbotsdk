@@ -7,14 +7,13 @@ from .payloads import parse_event
 
 
 class Event:
-    """一条 DISPATCH 事件；属性取值兼容群（openid）与频道两套字段名。"""
+    """一条业务事件（op=0）；属性取值兼容群（openid）与频道两套字段名。"""
 
     def __init__(self, payload: Payload) -> None:
         self._payload = payload
         t = payload.get("t")
         self.type: str | None = t if isinstance(t, str) else None
-        d = payload.get("d")
-        self._d: dict[str, Any] = dict(d) if isinstance(d, dict) else {}
+        self._d: dict[str, Any] | None = None
         self._typed: object | None = None
 
     @property
@@ -23,30 +22,34 @@ class Event:
 
     @property
     def data(self) -> dict[str, Any]:
+        """d 的只读副本；仅用到 `.typed`/`.raw` 的 handler 不会触发这次拷贝。"""
+        if self._d is None:
+            d = self._payload.get("d")
+            self._d = dict(d) if isinstance(d, dict) else {}
         return self._d
 
     @property
     def typed(self) -> object:
         """d 的 dataclass 解析结果（见 payloads.py）；未知事件类型为 dict。"""
         if self._typed is None:
-            self._typed = parse_event(self.type, self._d)
+            self._typed = parse_event(self.type, self.data)
         return self._typed
 
     @property
     def user_id(self) -> str | None:
-        return self._d.get("user_id") or self._d.get("from_user_id")
+        return self.data.get("user_id") or self.data.get("from_user_id")
 
     @property
     def group_id(self) -> str | None:
-        return self._d.get("group_openid")
+        return self.data.get("group_openid")
 
     @property
     def content(self) -> str | None:
-        return self._d.get("content")
+        return self.data.get("content")
 
     @property
     def message_id(self) -> str | None:
-        return self._d.get("id")
+        return self.data.get("id")
 
     @property
     def event_id(self) -> str | None:

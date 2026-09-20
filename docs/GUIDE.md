@@ -116,11 +116,12 @@ handler 参数按标注解析的完整规则：
 | payload dataclass（如 `GroupAtMessage`） | 解析后的 dataclass 对象；未收录事件回退原始 dict |
 | `Event` | 事件封装对象（`.raw`/`.data`/`.typed`/`.user_id`/`.group_id`/`.content`/`.message_id`/`.event_id`） |
 | 组件类型（`BotApi`/`Session`/`Config` 等） | `emitter.services` 中按类型登记的实例；未登记回退传原始 d |
-| 无标注 | 原始 d（业务事件即事件 dict；协议事件可能是标量，如 `INVALID_SESSION` 的 `resumable: bool`） |
+| 无标注 | 原始 d（即事件 dict） |
 
 注意：
 
-- 业务事件（op=0）处理器的**返回值不会回流**，回复消息请在 handler 里显式调 API。
+- 只有**业务事件（op=0）**会分发给你的 handler；协议帧（HELLO/READY/INVALID_SESSION/op=13）由 SDK 的协议处理器就地处理，不触达 handler（`Ready` 是例外，它既是握手结果也是可监听的业务事件）。
+- 业务事件处理器的**返回值不会回流**，回复消息请在 handler 里显式调 API。
 - 单个 handler 抛异常只记录日志，不影响同事件其他 handler 和主循环。
 - 所在分组未订阅（intents.toml 中为 `false`）的事件不会到达 handler。
 - 自定义组件也能注入：`ee.services[MyService] = MyService(...)` 登记后，handler 形参标注 `MyService` 即可拿到实例。

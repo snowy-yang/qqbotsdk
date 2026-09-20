@@ -1,5 +1,9 @@
 """连接适配器：把两种接入方式（WebSocket / Webhook）归一为事件流入、reply 队列流出。
 
+每条帧先交给本适配器注入的协议处理器（`BaseProtocol.on_frame`）处理协议语义，
+只有业务事件（op=0）才入队交给 emitter 分发给用户 handler——协议帧与业务事件
+因此不共享分发路径。
+
 - WebsocketConnecter：gateway 握手 + ws 长连接，指数退避重连（连接稳定
   存活才把退避归一，抖动的服务端不会被 1s 间隔反复探测）；心跳任务随
   连接生灭——HELLO 给出间隔后周期投递，断线即取消，不在 reply 队列堆积
@@ -7,13 +11,12 @@
   收到消息时的 ACK 期限检查抓"有事件流但心跳已死"；
 - WebhookConnecter：aiohttp server 接收回调，验签失败 401，
   按 payload id 做 60s TTL 去重，正常推送进事件队列；op=13 验证请求
-  经注入的 handle_event 同步取得应答（HTTP 响应不走 reply 队列）。
+  由协议处理器就地应答（HTTP 响应不走 reply 队列）。
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from time import monotonic
-from typing import Any, Protocol
+from typing import Protocol, cast
 
 import aiohttp
 import ujson
@@ -23,6 +26,7 @@ from loguru import logger
 from .config import Config
 from .crypto import verify_sig
 from .model import NOT_SET, Opcode, Payload, payload_of
+from .protocol import BaseProtocol
 from .queue import EventQueue
 from .session import Session
 from .token import AccessToken
@@ -51,12 +55,14 @@ class WebsocketConnecter:
         token: AccessToken,
         session: Session,
         queue: EventQueue,
+        protocol: BaseProtocol,
     ) -> None:
         self._config = config
         self._http = http
         self._token = token
         self._session = session
         self._queue = queue
+        self._protocol = protocol
 
     async def run(self) -> None:
         backoff: float = 1
@@ -105,6 +111,9 @@ class WebsocketConnecter:
             finally:
                 reply.cancel()
                 heartbeat.cancel()
+                # 取回被取消任务的结果，避免 "Task exception was never retrieved"，
+                # 也确保它们在下一轮重连前真正停下
+                await asyncio.gather(reply, heartbeat, return_exceptions=True)
             logger.info("WebSocket 已断开")
         return monotonic() - started
 
@@ -129,7 +138,17 @@ class WebsocketConnecter:
                         interval_fut.set_result(interval)
             elif op == Opcode.HEARTBEAT_ACK:
                 last_ack = monotonic()
-            await self._queue.put_event(data)
+
+            # 每帧都交给本适配器的协议处理器（HELLO→IDENTIFY/RESUME、
+            # READY→捕获会话、INVALID_SESSION→清会话、s→序列号）；只有业务
+            # 事件（op=0）入队分发。协议帧不入队，所以 INVALID_SESSION 的
+            # 会话重置在下面 break 之前已同步完成，重连不会误 RESUME 死会话。
+            response = await self._protocol.on_frame(data)
+            if response is not None:
+                await self._queue.put_reply(cast(Payload, response))
+            if op == Opcode.DISPATCH:
+                await self._queue.put_event(data)
+
             if op in (Opcode.RECONNECT, Opcode.INVALID_SESSION):
                 break
             if monotonic() - last_ack > interval * self._ACK_FACTOR:
@@ -160,13 +179,13 @@ class WebhookConnecter:
         self,
         config: Config,
         queue: EventQueue,
-        handle_event: Callable[[Payload], Awaitable[Any]],
+        protocol: BaseProtocol,
     ) -> None:
-        """handle_event 供 op=13 验证请求同步取应答（通常传 emitter.handle）；
-        与 ws 侧对齐，本类只依赖队列与该回调，不感知 EventEmitter。"""
+        """protocol 为本接入方式的协议处理器（WebhookProtocol），op=13 验证
+        请求由它就地应答；本类只依赖队列与该处理器，不感知 EventEmitter。"""
         self._config = config
         self._queue = queue
-        self._handle_event = handle_event
+        self._protocol = protocol
         self._seen: dict[str, float] = {}
 
     def _make_app(self) -> web.Application:
@@ -206,7 +225,7 @@ class WebhookConnecter:
 
         if payload.get("op") == Opcode.VALIDATION:
             logger.info("收到 Webhook 验证请求")
-            ret = await self._handle_event(payload)
+            ret = await self._protocol.on_frame(payload)
             if ret is None:
                 return web.json_response(
                     {"error": "missing validation handler"}, status=500
@@ -224,5 +243,8 @@ class WebhookConnecter:
             logger.info(f"Webhook 重复推送已跳过: {event_id}")
             return web.json_response({"opcode": 12})
 
-        await self._queue.put_event(payload)
+        if payload.get("op") == Opcode.DISPATCH:
+            await self._queue.put_event(payload)
+        else:
+            logger.warning(f"Webhook 收到非业务帧，已忽略: op={payload.get('op')}")
         return web.json_response({"opcode": 12})

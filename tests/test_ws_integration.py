@@ -11,6 +11,7 @@ from aiohttp import ClientSession, WSMsgType, web
 from qqbotsdk.config import Config
 from qqbotsdk.connecter import WebsocketConnecter
 from qqbotsdk.emitter import EventEmitter
+from qqbotsdk.model import Opcode
 from qqbotsdk.payloads import GroupAtMessage
 from qqbotsdk.queue import EventQueue
 from qqbotsdk.session import Session
@@ -115,15 +116,24 @@ async def test_websocket_end_to_end():
         session = Session()
         emitter = EventEmitter(queue)
         protocol = WebsocketProtocol(config, session, token)
-        emitter.register_protocol(protocol)
-        connecter = WebsocketConnecter(config, http, token, session, queue)
+        connecter = WebsocketConnecter(config, http, token, session, queue, protocol)
 
         received: list[GroupAtMessage] = []
+        # 协议帧（HELLO/HEARTBEAT_ACK）绝不该触达 handler——只有 op=0 业务事件入队
+        protocol_frames: list[object] = []
 
         @emitter.on("GROUP_AT_MESSAGE_CREATE")
         async def on_msg(msg: GroupAtMessage) -> None:
             received.append(msg)
             gw.got_dispatch.set()
+
+        @emitter.on(Opcode.HELLO)
+        async def on_hello(_) -> None:
+            protocol_frames.append("HELLO")
+
+        @emitter.on(Opcode.HEARTBEAT_ACK)
+        async def on_ack(_) -> None:
+            protocol_frames.append("HEARTBEAT_ACK")
 
         dispatch_task = asyncio.create_task(emitter.dispatch())
         connect_task = asyncio.create_task(connecter.run())
@@ -146,6 +156,8 @@ async def test_websocket_end_to_end():
             assert len(received) == 1
             assert received[0].content == "ping"
             assert received[0].group_openid == "G1"
+            # 协议帧（HELLO/HEARTBEAT_ACK）没进分发路径
+            assert protocol_frames == []
         finally:
             dispatch_task.cancel()
             connect_task.cancel()

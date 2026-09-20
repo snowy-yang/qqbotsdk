@@ -2,14 +2,12 @@ import asyncio
 
 import pytest
 
-from qqbotsdk.config import Config
 from qqbotsdk.emitter import EventEmitter
+from qqbotsdk.events import Event
 from qqbotsdk.model import Opcode, payload_of
 from qqbotsdk.payloads import GroupAtMessage
 from qqbotsdk.queue import EventQueue
 from qqbotsdk.session import Session
-from qqbotsdk.token import AccessToken
-from qqbotsdk.ws_protocol import WebsocketProtocol
 
 
 def test_sequence_only_moves_forward():
@@ -41,7 +39,8 @@ async def test_handler_exception_is_isolated():
 
 
 @pytest.mark.asyncio
-async def test_reply_payload_is_enqueued():
+async def test_protocol_frame_never_reaches_business_handler():
+    """协议帧改由适配器的协议处理器就近处理，不再经 emitter 回流应答。"""
     queue = EventQueue()
     emitter = EventEmitter(queue)
 
@@ -50,9 +49,7 @@ async def test_reply_payload_is_enqueued():
         return payload_of(Opcode.HEARTBEAT, 42)
 
     await emitter.emit({"op": Opcode.HEARTBEAT, "d": 0})
-    reply = await queue.get_reply()
-    assert reply["op"] == Opcode.HEARTBEAT
-    assert reply["d"] == 42
+    assert queue.reply_queue.empty()
 
 
 @pytest.mark.asyncio
@@ -126,40 +123,23 @@ async def test_service_registered_after_handler_still_injects():
 
 
 @pytest.mark.asyncio
-async def test_scalar_d_falls_back_to_raw_value():
-    """回归：op=9 INVALID_SESSION 的 d 是布尔值，DI 回退必须传原始 d。
-    此前实现把 d dict 化成 {}（恒 falsy），resumable=true 也被当成不可续传。
-    走真实协议层 handler 验证路由 → 注入 → 会话状态的全链路。"""
-    config = Config(
-        app_id="a",
-        app_secret="s",
-        base_url="https://x",
-        timeout=None,  # type: ignore[arg-type]
-        connecter="websocket",
-        intents_file="no-such.toml",
-        webhook_host="0.0.0.0",
-        webhook_port=8080,
-        webhook_path="/x",
-    )
+async def test_typed_and_data_see_same_content():
+    """`.typed` 与 `.data` 均可用且一致；只取 `.typed` 的 handler 不触发 data 拷贝。"""
     emitter = EventEmitter()
-    session = Session()
-    session.session_id = "S1"
-    emitter.register_protocol(
-        WebsocketProtocol(config, session, AccessToken(config, None))  # type: ignore[arg-type]
+    seen: list[tuple[str | None, str | None]] = []
+
+    @emitter.on("GROUP_AT_MESSAGE_CREATE")
+    async def handler(msg: GroupAtMessage, event: Event):
+        seen.append((msg.content, event.data["content"]))
+
+    await emitter.emit(
+        {
+            "op": Opcode.DISPATCH,
+            "t": "GROUP_AT_MESSAGE_CREATE",
+            "d": {"content": "hi", "group_openid": "G1"},
+        }
     )
-    seen: list[bool] = []
-
-    @emitter.on(Opcode.INVALID_SESSION)
-    async def spy(resumable: bool):
-        seen.append(resumable)
-
-    await emitter.emit({"op": Opcode.INVALID_SESSION, "d": True})
-    assert seen == [True]
-    assert session.session_id == "S1"  # 可续传，会话保留
-
-    await emitter.emit({"op": Opcode.INVALID_SESSION, "d": False})
-    assert seen == [True, False]
-    assert session.session_id is None  # 不可续传，会话清空
+    assert seen == [("hi", "hi")]
 
 
 @pytest.mark.asyncio

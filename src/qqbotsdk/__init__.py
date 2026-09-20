@@ -15,8 +15,8 @@ from .api import BotApi
 from .config import Config
 from .connecter import Connecter as Connecter
 from .connecter import WebhookConnecter, WebsocketConnecter
-from .emitter import BaseProtocol as BaseProtocol
 from .emitter import EventEmitter as EventEmitter
+from .protocol import BaseProtocol as BaseProtocol
 from .queue import EventQueue as EventQueue
 from .session import Session
 from .token import AccessToken
@@ -52,17 +52,20 @@ async def run_loop(emitter: EventEmitter | None = None) -> None:
         }
     )
 
+    # 各接入方式配自己的协议处理器：协议帧由适配器就近处理，只有业务事件
+    # （op=0）入队交给 emitter 分发（见 protocol.py / connecter.py）
     match config.connecter:
         case "websocket":
             protocol = WebsocketProtocol(config, session, token)
-            connecter = WebsocketConnecter(config, http, token, session, emitter.queue)
+            connecter = WebsocketConnecter(
+                config, http, token, session, emitter.queue, protocol
+            )
         case "webhook":
             protocol = WebhookProtocol(config)
-            connecter = WebhookConnecter(config, emitter.queue, emitter.handle)
+            connecter = WebhookConnecter(config, emitter.queue, protocol)
         case unknown:
             raise ValueError(f"未知的 CONNECTER: {unknown}")
 
-    emitter.register_protocol(protocol)
     logger.info(f"qqbotsdk 启动，连接方式: {config.connecter}")
     try:
         await asyncio.gather(emitter.dispatch(), connecter.run())

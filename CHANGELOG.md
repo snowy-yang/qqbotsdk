@@ -26,15 +26,21 @@
 - 组件构造签名瘦身：`WebsocketProtocol(config, session, token)` 移除未使用的 `queue`；`WebsocketConnecter` 改收 `(config, http, token, session, queue)`；`WebhookConnecter` 改收 `(config, queue, handle_event)`，op=13 应答经注入的回调取得，不再依赖具体 `EventEmitter`；`Session` 合并 `sequence_id`/`seq` 双属性为 `seq`（心跳序列号无历史时发 0 而非 null）；移除服务端不会推送的 HEARTBEAT 死代码 handler；`ApiError`/`TokenError` 的错误响应解析合并为 `model.error_parts`
 - **intents.toml 改为只按大类订阅**：配置项从"`[分组]` 表内逐事件开关"简化为"`分组名 = true/false`"（如 `GROUP_AND_C2C_EVENT = true`）——网关只接受分组位掩码，组内事件本就无法单独订阅，此前的逐事件开关只是"组内任一为 true 即订阅整组"的装饰。破坏性变更：旧格式（表内逐事件开关）不再兼容，与拼错的分组名、非布尔值一样在启动时直接抛 `ValueError`，而非静默少订阅
 - 形参注入缓存化：handler 的签名与类型标注解析结果（此前每条事件都重新跑 `inspect.signature`/`get_type_hints`）合并缓存，`services` 命中改为每条事件实时判定——先注册 handler、后登记组件的既有装配顺序不受影响
+- **协议帧与业务事件分流，各接入方式配专有协议处理器**：`BaseProtocol` 从 `emitter.py` 移入新模块 `protocol.py`，接口由 `register(emitter)` 改为 `async on_frame(payload)`（返回需回送的响应体）；协议处理器不再注册进 emitter，而是由 `run_loop` 构造后**注入对应的 connecter**（`WebsocketConnecter(..., protocol)` / `WebhookConnecter(config, queue, protocol)`），由适配器逐帧调用。破坏性变更：只有 op=0 的业务事件进事件队列交给 `EventEmitter`，HELLO/READY/INVALID_SESSION/op=13 等协议帧在连接器内就地处理——用户 handler 不再收到协议帧；`EventEmitter.register_protocol()`、`EventEmitter.handle()`、`emitter._protocol`/`on_payload` 机制随之删除，协议类不再需要 `register()` 注册 handler。附带修掉一处时序耦合：`INVALID_SESSION` 的会话重置此前依赖分发泵在重连前消费掉该事件，现在在 connecter `break` 重连前同步完成，不会误 RESUME 已死会话
+- 事件分发热路径减负：`emit()` 先取事件名、无 listener 时不再构造 `Event`（每条未订阅事件/协议帧省一次对象与 dict 拷贝）；`Event.data` 改为惰性拷贝（只用 `.typed`/`.raw` 的 handler 不再触发 `dict(d)`）
+- ws 重连收尾补 `await`：取消 `reply`/`heartbeat` 任务后 `gather(..., return_exceptions=True)` 取回结果，避免 "Task exception was never retrieved" 并确保它们在下一轮重连前真正停下
+- `EventQueue.put_event`/`put_reply` 去掉多余的 `return await`
 
 ### 移除
 
+- `EventEmitter.register_protocol()`、`EventEmitter.handle()` 与 `emitter` 持有协议层的机制（协议处理器改为由 connecter 持有并逐帧调用，见上文"变更"）
 - apscheduler 依赖（心跳迁入 connecter 后不再需要调度器）
 - 音乐插件示例（`plugins/`、根目录 `main.py`）已拆分为独立的点歌 bot 项目（含 Markdown 卡片、按钮回调与内置短网址多线程下载代理），不再随 SDK 仓库分发
 
 ### 修复
 
-- **INVALID_SESSION 可续传标记失效**：op=9 的 `d` 是布尔值（true=可 RESUME），此前参数注入回退把 d 字典化成 `{}`（恒 falsy），任何 INVALID_SESSION 都会清空会话——RESUME 续传永远走不到，断线期间本可回放的消息丢失；注入回退改为直传原始 d，`async def on_invalid(resumable: bool)` 现在能拿到真实布尔
+- **INVALID_SESSION 可续传标记失效**：op=9 的 `d` 是布尔值（true=可 RESUME），此前参数注入回退把 d 字典化成 `{}`（恒 falsy），任何 INVALID_SESSION 都会清空会话——RESUME 续传永远走不到，断线期间本可回放的消息丢失。现协议帧不再经参数注入，`WebsocketProtocol` 直接读取 `d` 的真值，`resumable=true` 正确保留会话（协议帧处理测试覆盖）
+- **会话重置时序**：`INVALID_SESSION` 的会话清空此前依赖分发泵在重连前消费掉该事件（慢 handler 会推迟它，导致带着已死 session_id 去 RESUME）；现在连接器在 `break` 重连前同步调用协议处理器完成重置
 - token 请求失败时抛出 `TokenError`（携带 QQ 返回的 `code`/`message`），不再抛出掩盖真实原因的 `KeyError: 'access_token'`
 - 修正被动回复 `event_id` 的指引：官方要求取网关帧最外层的 id（`Event.event_id`），事件体里的裸 UUID（`Interaction.id` 等）不能作 `event_id`，此前文档与 docstring 的说法有误
 - 响应 `Content-Type` 非 JSON 时不再抛 `ContentTypeError`（个别接口如回应互动返回 200 text/plain + `{}` body）；JSON 解析统一切换 ujson
