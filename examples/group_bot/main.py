@@ -10,12 +10,12 @@
 
 from loguru import logger
 
-from qqbotsdk import EventEmitter, EventQueue, main
+from qqbotsdk import EventEmitter, main
 from qqbotsdk.api import BotApi, button, keyboard
 from qqbotsdk.events import Event
 from qqbotsdk.payloads import C2CMessage, GroupAtMessage, Interaction
 
-ee = EventEmitter(EventQueue())
+ee = EventEmitter()
 
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")

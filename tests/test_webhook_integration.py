@@ -14,8 +14,6 @@ from qqbotsdk.connecter import WebhookConnecter
 from qqbotsdk.crypto import build_seed
 from qqbotsdk.emitter import EventEmitter
 from qqbotsdk.payloads import GroupAtMessage
-from qqbotsdk.queue import EventQueue
-from qqbotsdk.session import Session
 from qqbotsdk.webhook_protocol import WebhookProtocol
 
 SECRET = "webhook-test-secret"
@@ -52,10 +50,9 @@ def event_body(event_id: str, content: str) -> dict[str, Any]:
 @pytest.mark.asyncio
 async def test_webhook_end_to_end():
     config = make_config(0)
-    queue = EventQueue()
-    emitter = EventEmitter(queue)
-    emitter.register_protocol(WebhookProtocol(config, queue, Session()))
-    connecter = WebhookConnecter(config, emitter, queue)
+    emitter = EventEmitter()
+    emitter.register_protocol(WebhookProtocol(config))
+    connecter = WebhookConnecter(config, emitter.queue, emitter.handle)
 
     received: list[GroupAtMessage] = []
 

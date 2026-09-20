@@ -1,6 +1,5 @@
 from qqbotsdk.config import Config
 from qqbotsdk.connecter import WebhookConnecter
-from qqbotsdk.emitter import EventEmitter
 from qqbotsdk.queue import EventQueue
 
 
@@ -16,7 +15,11 @@ def make_connecter() -> WebhookConnecter:
         webhook_port=8080,
         webhook_path="/qqbot/webhook",
     )
-    return WebhookConnecter(config, EventEmitter(EventQueue()), EventQueue())
+
+    async def noop_handle(payload):
+        return None
+
+    return WebhookConnecter(config, EventQueue(), noop_handle)
 
 
 def test_first_push_is_not_duplicate():

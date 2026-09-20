@@ -1,15 +1,19 @@
 """连接适配器：把两种接入方式（WebSocket / Webhook）归一为事件流入、reply 队列流出。
 
-- WebsocketConnecter：gateway 握手 + ws 长连接，指数退避重连；
-  看门狗两层互补——receive 的静默超时抓"连接彻底静默"，
+- WebsocketConnecter：gateway 握手 + ws 长连接，指数退避重连（连接稳定
+  存活才把退避归一，抖动的服务端不会被 1s 间隔反复探测）；心跳任务随
+  连接生灭——HELLO 给出间隔后周期投递，断线即取消，不在 reply 队列堆积
+  过期心跳；看门狗两层互补——receive 的静默超时抓"连接彻底静默"，
   收到消息时的 ACK 期限检查抓"有事件流但心跳已死"；
 - WebhookConnecter：aiohttp server 接收回调，验签失败 401，
-  按 payload id 做 60s TTL 去重，正常推送进事件队列。
+  按 payload id 做 60s TTL 去重，正常推送进事件队列；op=13 验证请求
+  经注入的 handle_event 同步取得应答（HTTP 响应不走 reply 队列）。
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from time import monotonic
-from typing import Protocol
+from typing import Any, Protocol
 
 import aiohttp
 import ujson
@@ -18,9 +22,9 @@ from loguru import logger
 
 from .config import Config
 from .crypto import verify_sig
-from .emitter import EventEmitter
-from .model import NOT_SET, Opcode, Payload
+from .model import NOT_SET, Opcode, Payload, payload_of
 from .queue import EventQueue
+from .session import Session
 from .token import AccessToken
 
 
@@ -37,25 +41,30 @@ class WebsocketConnecter:
     # 不能压到 1× 整——ACK 的自然间隔就是 1×，正常抖动会贴边误杀；TCP 下丢包表现为延迟而非静默
     _SILENCE_FACTOR = 1.1
     _ACK_FACTOR = 1.2
+    # 连接存活超过该时长才算稳定，才把退避归一
+    _STABLE_SECONDS = 60.0
 
     def __init__(
         self,
         config: Config,
         http: aiohttp.ClientSession,
         token: AccessToken,
+        session: Session,
         queue: EventQueue,
     ) -> None:
         self._config = config
         self._http = http
         self._token = token
+        self._session = session
         self._queue = queue
 
     async def run(self) -> None:
         backoff: float = 1
         while True:
             try:
-                await self._connect()
-                backoff = 1
+                lived = await self._connect()
+                if lived >= self._STABLE_SECONDS:
+                    backoff = 1
             except RateLimitError:
                 logger.warning("gateway 触发频率限制")
                 backoff = 60
@@ -67,7 +76,9 @@ class WebsocketConnecter:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60)
 
-    async def _connect(self) -> None:
+    async def _connect(self) -> float:
+        """建立一次连接直到断开，返回存活秒数（供 run 判断是否重置退避）。"""
+        started = monotonic()
         access_token = await self._token.get_access_token()
         headers = {"Authorization": f"QQBot {access_token}"}
 
@@ -84,15 +95,22 @@ class WebsocketConnecter:
 
         async with self._http.ws_connect(gateway, headers=headers) as ws:
             logger.info("WebSocket 已连接")
-            receive = asyncio.create_task(self.receive_helper(ws))
+            # HELLO 才给出心跳间隔；receive 解析到后经 Future 交给心跳任务
+            interval: asyncio.Future[float] = asyncio.get_running_loop().create_future()
+            receive = asyncio.create_task(self.receive_helper(ws, interval))
             reply = asyncio.create_task(self.reply_helper(ws))
+            heartbeat = asyncio.create_task(self.heartbeat_helper(interval))
             try:
                 await receive
             finally:
                 reply.cancel()
+                heartbeat.cancel()
             logger.info("WebSocket 已断开")
+        return monotonic() - started
 
-    async def receive_helper(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+    async def receive_helper(
+        self, ws: aiohttp.ClientWebSocketResponse, interval_fut: asyncio.Future[float]
+    ) -> None:
         interval: float = 0
         last_ack = monotonic()
         while not ws.closed:
@@ -107,6 +125,8 @@ class WebsocketConnecter:
                 d = data.get("d")
                 if isinstance(d, dict):
                     interval = d.get("heartbeat_interval", 41_250) / 1000
+                    if not interval_fut.done():
+                        interval_fut.set_result(interval)
             elif op == Opcode.HEARTBEAT_ACK:
                 last_ack = monotonic()
             await self._queue.put_event(data)
@@ -114,6 +134,14 @@ class WebsocketConnecter:
                 break
             if monotonic() - last_ack > interval * self._ACK_FACTOR:
                 raise TimeoutError
+
+    async def heartbeat_helper(self, interval_fut: asyncio.Future[float]) -> None:
+        """HELLO 给出间隔后周期投递心跳；断线随任务取消，不堆积过期心跳。"""
+        interval = await interval_fut
+        while True:
+            await asyncio.sleep(interval)
+            # 服务端不会推送 op=1，心跳只由本任务经 reply 队列发出
+            await self._queue.put_reply(payload_of(Opcode.HEARTBEAT, self._session.seq))
 
     async def reply_helper(self, ws: aiohttp.ClientWebSocketResponse) -> None:
         while not ws.closed:
@@ -129,11 +157,16 @@ class WebhookConnecter:
     _DEDUP_TTL = 60
 
     def __init__(
-        self, config: Config, emitter: EventEmitter, queue: EventQueue
+        self,
+        config: Config,
+        queue: EventQueue,
+        handle_event: Callable[[Payload], Awaitable[Any]],
     ) -> None:
+        """handle_event 供 op=13 验证请求同步取应答（通常传 emitter.handle）；
+        与 ws 侧对齐，本类只依赖队列与该回调，不感知 EventEmitter。"""
         self._config = config
-        self._emitter = emitter
         self._queue = queue
+        self._handle_event = handle_event
         self._seen: dict[str, float] = {}
 
     def _make_app(self) -> web.Application:
@@ -173,7 +206,7 @@ class WebhookConnecter:
 
         if payload.get("op") == Opcode.VALIDATION:
             logger.info("收到 Webhook 验证请求")
-            ret = await self._emitter.handle(payload)
+            ret = await self._handle_event(payload)
             if ret is None:
                 return web.json_response(
                     {"error": "missing validation handler"}, status=500

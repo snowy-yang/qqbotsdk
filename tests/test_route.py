@@ -2,12 +2,11 @@ import pytest
 
 from qqbotsdk.emitter import EventEmitter
 from qqbotsdk.model import Opcode
-from qqbotsdk.queue import EventQueue
 
 
 @pytest.fixture
 def emitter() -> EventEmitter:
-    return EventEmitter(EventQueue())
+    return EventEmitter()  # 无参构造，覆盖 queue 默认自建路径
 
 
 def test_route_dispatch_uses_t(emitter: EventEmitter):

@@ -11,11 +11,11 @@
 运行：uv run python examples/webhook_bot/main.py
 """
 
-from qqbotsdk import EventEmitter, EventQueue, main
+from qqbotsdk import EventEmitter, main
 from qqbotsdk.api import BotApi
 from qqbotsdk.payloads import GroupAtMessage
 
-ee = EventEmitter(EventQueue())
+ee = EventEmitter()
 
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")

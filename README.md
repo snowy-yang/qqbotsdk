@@ -69,9 +69,9 @@ WEBHOOK_PATH=/qqbot/webhook
 编写入口（如 `main.py`），把自己构造的 `EventEmitter` 传给 `main()`：
 
 ```python
-from qqbotsdk import EventEmitter, EventQueue, main
+from qqbotsdk import EventEmitter, main
 
-ee = EventEmitter(EventQueue())
+ee = EventEmitter()
 
 # 方式一：裸参数（d 为原始事件数据）
 @ee.on("GROUP_AT_MESSAGE_CREATE")

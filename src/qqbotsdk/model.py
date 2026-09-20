@@ -89,3 +89,14 @@ class Intent(IntFlag):
 
 def payload_of(op: Opcode, d: Any = NOT_SET) -> Payload:
     return {"id": NOT_SET, "op": op, "d": d, "s": NOT_SET, "t": NOT_SET}
+
+
+def error_parts(data: Any) -> tuple[Any, Any]:
+    """从错误响应体取 (code, message)；非 dict 响应整体作 message。
+
+    QQ 的失败响应 HTTP 可能仍是 200 且 Content-Type 不规范，
+    ApiError/TokenError 统一用它暴露真实原因。
+    """
+    if isinstance(data, dict):
+        return data.get("code"), data.get("message")
+    return None, data

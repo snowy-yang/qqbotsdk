@@ -3,11 +3,16 @@
 - `dispatch()` 泵循环消费 EventQueue.msg_queue，`emit()` 按
   op（DISPATCH 用 t 名、其余用 Opcode 名）路由到 `@on` 注册的 handler；
 - handler 参数按形参标注注入：payload dataclass → 解析对象，`Event` →
-  事件封装，`services` 里登记的组件类型 → 实例，其余直传原始 d；
+  事件封装，`services` 里登记的组件类型 → 实例，其余直传原始 d
+  （可能是 dict、标量甚至 None，协议事件的 d 不保证是 dict）；
 - 业务 handler（op=0）返回值不回流；协议层（op≠0）返回的 payload
   进 reply 队列由 ws 发出。handler 异常就地隔离，不影响其他 handler。
+- `on(..., background=True)` 把 handler 放进后台任务并发执行：
+  不阻塞事件流，但同事件 handler 间失去先后保证，返回值不回流；
+  进程退出经 `close()` 统一取消在飞任务。
 """
 
+import asyncio
 import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
@@ -35,16 +40,18 @@ class BaseProtocol(ABC):
 
 
 class EventEmitter:
-    def __init__(self, queue: EventQueue) -> None:
+    def __init__(self, queue: EventQueue | None = None) -> None:
         self._ee = AsyncIOEventEmitter()
-        self._queue = queue
+        self._queue = queue if queue is not None else EventQueue()
         self.services: dict[type, Any] = {}
         self._protocol: BaseProtocol | None = None
         self._hints: dict[Callable[..., Any], dict[str, Any]] = {}
+        self._background: set[Callable[..., Any]] = set()
+        self._bg_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def queue(self) -> EventQueue:
-        """本 emitter 消费的事件队列；外部构造 emitter 时由 run_loop 复用同一实例。"""
+        """本 emitter 消费的事件队列；未显式传入时构造即自建，run_loop 复用同一实例。"""
         return self._queue
 
     def register_protocol(self, protocol: BaseProtocol) -> None:
@@ -52,25 +59,42 @@ class EventEmitter:
         protocol.register(self)
 
     @overload
-    def on(self, event: Opcode | str) -> Callable[[Handler], Handler]: ...
+    def on(
+        self, event: Opcode | str, *, background: bool = False
+    ) -> Callable[[Handler], Handler]: ...
 
     @overload
-    def on(self, event: Opcode | str, fn: Handler) -> Handler: ...
+    def on(
+        self, event: Opcode | str, fn: Handler, *, background: bool = False
+    ) -> Handler: ...
 
     def on(
-        self, event: Opcode | str, fn: Handler | None = None
+        self,
+        event: Opcode | str,
+        fn: Handler | None = None,
+        *,
+        background: bool = False,
     ) -> Handler | Callable[[Handler], Handler]:
         name = event.name if isinstance(event, Opcode) else event
 
         def decorator(fn: Handler) -> Handler:
             self._ee.on(name, fn)
+            if background:
+                self._background.add(fn)
             return fn
 
         if fn is None:
             return decorator
 
-        self._ee.on(name, fn)
-        return fn
+        return decorator(fn)
+
+    async def close(self) -> None:
+        """取消全部在飞后台任务并等待收尾；run_loop 退出时先于连接池调用。"""
+        if not self._bg_tasks:
+            return
+        for task in self._bg_tasks:
+            task.cancel()
+        await asyncio.gather(*self._bg_tasks, return_exceptions=True)
 
     async def dispatch(self) -> None:
         while True:
@@ -115,8 +139,12 @@ class EventEmitter:
         if not listeners:
             return
 
+        reply = op != Opcode.DISPATCH
         for fn in listeners:
-            await self._invoke(fn, event, reply=op != Opcode.DISPATCH)
+            if fn in self._background:
+                self._spawn(fn, event)
+            else:
+                await self._invoke(fn, event, reply=reply)
 
     async def handle(self, data: Payload) -> Any:
         """同步分发事件并返回首个处理器的非空返回值，用于 op=13 等需要应答的协议事件。"""
@@ -143,11 +171,29 @@ class EventEmitter:
         if reply and isinstance(ret, dict):
             await self._queue.put_reply(cast(Payload, ret))
 
+    def _spawn(self, fn: Callable[..., Awaitable[Any]], event: Event) -> None:
+        """handler 进后台任务，emit 不等它；任务由 _bg_tasks 持强引用防 GC。"""
+        task = asyncio.create_task(self._run_background(fn, event))
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
+    async def _run_background(
+        self, fn: Callable[..., Awaitable[Any]], event: Event
+    ) -> None:
+        try:
+            await fn(*self._resolve_params(fn, event))
+        except Exception as e:
+            logger.exception(
+                f"后台事件处理器 {getattr(fn, '__qualname__', fn)} 异常: {e}"
+            )
+
     def _resolve_params(
         self, fn: Callable[..., Awaitable[Any]], event: Event
     ) -> list[Any]:
         """按 handler 形参标注解析：payload dataclass → 解析对象，`Event` → 事件
-        封装，`services` 登记的组件类型 → 实例，其余（含无标注）→ 原始 d。"""
+        封装，`services` 登记的组件类型 → 实例，其余（含无标注）→ 原始 d
+        （Event.data 是 dict 化视图，标量 d 如 INVALID_SESSION 的 true/false
+        必须走这里才能拿到原值）。"""
         hints = self._hints.get(fn)
         if hints is None:
             hints = get_type_hints(fn)
@@ -163,5 +209,5 @@ class EventEmitter:
             elif hint in self.services:
                 args.append(self.services[hint])
             else:
-                args.append(event.data)
+                args.append(event.raw.get("d"))
         return args

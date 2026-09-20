@@ -1,6 +1,6 @@
 """qqbotsdk：QQ 官方机器人 SDK 入口。
 
-用法：构造 `EventEmitter(EventQueue())` 注册 handler，交给 `main(ee)`
+用法：构造 `EventEmitter()` 注册 handler，交给 `main(ee)`
 启动；连接方式由 .env 的 CONNECTER 决定（websocket / webhook）。
 架构详情见 docs/ARCHITECTURE.md。
 """
@@ -33,30 +33,32 @@ async def run_loop(emitter: EventEmitter | None = None) -> None:
     参数注入；共享的 HTTP 连接池随 run_loop 结束释放。
     """
     if emitter is None:
-        emitter = EventEmitter(EventQueue())
+        emitter = EventEmitter()
 
     config = Config.load()
     http = ClientSession(timeout=config.timeout)
     session = Session()
     token = AccessToken(config, http)
     api = BotApi(config, http, token)
-    emitter.services.update({
-        EventEmitter: emitter,
-        EventQueue: emitter.queue,
-        Config: config,
-        Session: session,
-        ClientSession: http,
-        AccessToken: token,
-        BotApi: api,
-    })
+    emitter.services.update(
+        {
+            EventEmitter: emitter,
+            EventQueue: emitter.queue,
+            Config: config,
+            Session: session,
+            ClientSession: http,
+            AccessToken: token,
+            BotApi: api,
+        }
+    )
 
     match config.connecter:
         case "websocket":
-            protocol = WebsocketProtocol(config, emitter.queue, session, token)
-            connecter = WebsocketConnecter(config, http, token, emitter.queue)
+            protocol = WebsocketProtocol(config, session, token)
+            connecter = WebsocketConnecter(config, http, token, session, emitter.queue)
         case "webhook":
-            protocol = WebhookProtocol(config, emitter.queue, session)
-            connecter = WebhookConnecter(config, emitter, emitter.queue)
+            protocol = WebhookProtocol(config)
+            connecter = WebhookConnecter(config, emitter.queue, emitter.handle)
         case unknown:
             raise ValueError(f"未知的 CONNECTER: {unknown}")
 
@@ -65,6 +67,8 @@ async def run_loop(emitter: EventEmitter | None = None) -> None:
     try:
         await asyncio.gather(emitter.dispatch(), connecter.run())
     finally:
+        # 在飞的后台 handler 先于连接池收尾，避免用到已关闭的 ClientSession
+        await emitter.close()
         # 全 SDK 共享一个连接池，统一在此释放
         await http.close()
 

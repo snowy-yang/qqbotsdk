@@ -6,12 +6,10 @@ from .config import Config
 from .crypto import sign_msg
 from .emitter import BaseProtocol, EventEmitter
 from .model import Opcode, ValidationData
-from .queue import EventQueue
-from .session import Session
 
 
 class WebhookProtocol(BaseProtocol):
-    def __init__(self, config: Config, queue: EventQueue, session: Session) -> None:
+    def __init__(self, config: Config) -> None:
         self._config = config
 
     @override

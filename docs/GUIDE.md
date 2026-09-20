@@ -76,9 +76,9 @@ SDK 启动时读取 `intents.toml` 计算订阅掩码，把想收的事件改成
 用装饰器把 handler 注册到 `EventEmitter`，事件名即线上 payload 的 `t` 名（如 `GROUP_AT_MESSAGE_CREATE`）。三种写法可混用：
 
 ```python
-from qqbotsdk import EventEmitter, EventQueue
+from qqbotsdk import EventEmitter
 
-ee = EventEmitter(EventQueue())
+ee = EventEmitter()
 
 # 方式一：裸参数，d 为原始事件 dict
 @ee.on("GROUP_AT_MESSAGE_CREATE")
@@ -107,8 +107,8 @@ handler 参数按标注解析的完整规则：
 |---|---|
 | payload dataclass（如 `GroupAtMessage`） | 解析后的 dataclass 对象；未收录事件回退原始 dict |
 | `Event` | 事件封装对象（`.raw`/`.data`/`.typed`/`.user_id`/`.group_id`/`.content`/`.message_id`/`.event_id`） |
-| 组件类型（`BotApi`/`Session`/`Config` 等） | `emitter.services` 中按类型登记的实例；未登记回退传原始 dict |
-| 无标注 | 原始事件 dict |
+| 组件类型（`BotApi`/`Session`/`Config` 等） | `emitter.services` 中按类型登记的实例；未登记回退传原始 d |
+| 无标注 | 原始 d（业务事件即事件 dict；协议事件可能是标量，如 `INVALID_SESSION` 的 `resumable: bool`） |
 
 注意：
 
@@ -116,6 +116,18 @@ handler 参数按标注解析的完整规则：
 - 单个 handler 抛异常只记录日志，不影响同事件其他 handler 和主循环。
 - 未订阅（intents.toml 为 `false`）的事件不会到达 handler。
 - 自定义组件也能注入：`ee.services[MyService] = MyService(...)` 登记后，handler 形参标注 `MyService` 即可拿到实例。
+
+### 后台并发 handler
+
+默认同一事件的所有 handler 串行执行，某个慢 handler 会延迟后续事件。调用密集、不关心先后顺序的 handler 可加 `background=True` 丢进后台任务，事件流不再等它：
+
+```python
+@ee.on("GROUP_AT_MESSAGE_CREATE", background=True)
+async def slow_work(msg: GroupAtMessage, api: BotApi):
+    ...  # 耗时处理，不阻塞其他事件的分发
+```
+
+代价是同一事件内 handler 间失去先后保证，且返回值不回流（本就只对协议事件回流），因此仅用于业务 handler。进程退出时 `run_loop` 会统一取消在飞的后台任务。
 
 ## 发消息
 

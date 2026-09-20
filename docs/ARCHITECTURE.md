@@ -7,29 +7,29 @@
 ```mermaid
 flowchart TB
     subgraph 接入层["接入层 connecter.py"]
-        WS["WebsocketConnecter\ngateway握手 + ws长连接\n指数退避重连 + 心跳看门狗"]
+        WS["WebsocketConnecter\ngateway握手 + ws长连接\n心跳随连接生灭 + 心跳看门狗\n指数退避重连（稳定连接才归一）"]
         WH["WebhookConnecter\naiohttp server\n验签 + TTL去重"]
     end
 
     subgraph 分发层["分发层 emitter.py"]
         Q[("EventQueue\nmsg_queue / reply_queue")]
-        EE["EventEmitter\nop/t 路由 + 参数注入\nhandler 异常隔离"]
+        EE["EventEmitter\nop/t 路由 + 参数注入\nhandler 异常隔离\nbackground 后台并发"]
     end
 
     subgraph 协议层["协议层 BaseProtocol"]
-        WSP["WebsocketProtocol\nIDENTIFY/RESUME\napscheduler 心跳\ns 序列号跟踪"]
+        WSP["WebsocketProtocol\nIDENTIFY/RESUME\ns 序列号跟踪"]
         WHP["WebhookProtocol\nop=13 验证应答"]
     end
 
     subgraph 业务层["业务层"]
-        API["BotApi\nREST 封装 + ApiError"]
+        API["BotApi\nREST 封装（core + v2/channel/guild）\n429/401 自动重试"]
         USER["用户 handler\n@ee.on(...)"]
     end
 
     subgraph 基础设施["基础设施"]
         CFG["Config\n.env 一次性读齐"]
         HTTP[("ClientSession\n共享连接池")]
-        TK["AccessToken\n缓存 + 自动续期"]
+        TK["AccessToken\n缓存 + 自动续期\n并发锁 + 401 作废"]
         CRY["crypto\nEd25519 验签/签名"]
     end
 
@@ -39,7 +39,8 @@ flowchart TB
     WH -- "事件 payload" --> Q
     Q -- "dispatch 泵" --> EE
     EE -- "on_payload" --> WSP
-    WSP -- "IDENTIFY/HEARTBEAT 等\npayload 返回值" --> Q
+    WSP -- "IDENTIFY/RESUME 等\npayload 返回值" --> Q
+    WS -- "HEARTBEAT（心跳任务）" --> Q
     EE -- "Event 注入" --> USER
     USER -- "api: BotApi" --> API
     API --> QQ
@@ -71,8 +72,8 @@ sequenceDiagram
     P-->>Q: IDENTIFY/RESUME payload → reply_queue
     WS->>QQ: send（过滤 NOT_SET 字段）
 
-    loop 每次心跳间隔
-        P->>Q: HEARTBEAT payload（apscheduler 定时）
+    loop 每次心跳间隔（心跳任务随连接生灭）
+        WS->>Q: HEARTBEAT payload
         WS->>QQ: send
         QQ->>WS: HEARTBEAT_ACK（刷新看门狗时钟）
     end
@@ -90,10 +91,10 @@ sequenceDiagram
 
 | 层 | 模块 | 职责 | 不允许出现 |
 |---|---|---|---|
-| 接入层 | `connecter.py` | 传输细节：握手、重连、验签、去重 | 事件业务语义、handler 调用 |
-| 分发层 | `emitter.py` | 路由、参数注入、异常隔离、应答回流 | 传输细节、具体协议状态机 |
-| 协议层 | `ws_protocol.py` `webhook_protocol.py` | 鉴权/心跳/验证等协议状态机 | 传输细节（只经队列收发） |
-| 业务层 | `api.py` `payloads.py` + 用户代码 | OpenAPI 调用、payload 解析与机器人逻辑 | 协议细节 |
+| 接入层 | `connecter.py` | 传输细节：握手、心跳、重连、验签、去重 | 事件业务语义、协议状态机 |
+| 分发层 | `emitter.py` | 路由、参数注入、异常隔离、后台并发、应答回流 | 传输细节、具体协议状态机 |
+| 协议层 | `ws_protocol.py` `webhook_protocol.py` | 鉴权/验证等协议状态机（会话语义） | 传输细节（只经队列收发） |
+| 业务层 | `api/` `payloads.py` + 用户代码 | OpenAPI 调用、payload 解析与机器人逻辑 | 协议细节 |
 
 跨层共享的最小公共物：`model.py`（Opcode/Payload/Intent）、`queue.py`（事件通道）、`config.py`、`session.py`（ws 会话状态）、`payloads.py`（事件 dataclass 与解析，被 `events.py`/`emitter.py` 使用）。
 
@@ -101,22 +102,23 @@ sequenceDiagram
 
 - 全部组件在 `run_loop`（`__init__.py`）显式构造装配，无 DI 框架，也无任何全局单例。
 - 组件按类型登记进 `emitter.services`，handler 形参标注类型即得实例；用户自定义组件同样登记即可注入。
-- 唯一的 `ClientSession` 在 `run_loop` 构造，`finally` 中统一释放（全 SDK 共享一个连接池）。
-- 接入方式的选择收敛在 `run_loop` 的 `match config.connecter` 装配分支，主体代码只依赖 `BaseProtocol`/`Connecter` 抽象。
+- 唯一的 `ClientSession` 在 `run_loop` 构造，`finally` 中先 `emitter.close()` 收尾后台 handler、再统一释放连接池（全 SDK 共享一个连接池）。
+- 接入方式的选择收敛在 `run_loop` 的 `match config.connecter` 装配分支，主体代码只依赖 `BaseProtocol`/`Connecter` 抽象；两个 connecter 的依赖面一致（config + queue + 各自所需的窄依赖），`WebhookConnecter` 经 `handle_event` 回调取得 op=13 应答，不感知 `EventEmitter`。
 - 用户在 `main(ee)` 之前构造的 `EventEmitter` 会被复用（连同它的队列），保证 handler 注册在主体实际使用的实例上。
 
 ## 关键设计决策
 
 1. **管线而非回调直调**：事件一律经 `EventQueue` 异步流转，接入与分发两侧解耦——Webhook handler 里不需要知道 ws 的存在，反之亦然。代价是多一跳队列延迟（可忽略）。
-2. **协议层状态机独立**（`BaseProtocol.register/on_payload`）：emitter 不认识"心跳""序列号"这些 ws 概念；协议类通过返回 payload dict 经 reply 队列外发。
-3. **看门狗两层互补**（见 `connecter.py` 模块注释）：静默超时抓连接彻底失联，ACK 期限检查抓"有事件流但心跳已死"。阈值 `_SILENCE_FACTOR=1.1`、`_ACK_FACTOR=1.2` 是按 ACK 自然节奏校准的，**不能压到 1× 整**，否则正常抖动会周期性误杀（误杀由 RESUME 兜底，不丢消息）。
-4. **handler 异常就地隔离**：`_invoke` 捕获记日志，`dispatch` 主循环另有兜底；单条事件的单个 handler 失败不影响进程。
-5. **注入约定**：handler 参数按形参标注解析——`payloads.py` 里的 dataclass → 解析后的 payload 对象；`Event` → 事件封装；登记进 `emitter.services` 的组件类型（如 `BotApi`）→ 实例；未标注或未登记 → 回退传原始 `d`，保持旧处理器兼容。解析是纯同步查表（`get_type_hints` + dict），无框架、无运行时魔法。
+2. **协议层只管会话语义，心跳归传输层**：`WebsocketProtocol` 负责 IDENTIFY/RESUME/序列号（说什么），`WebsocketConnecter` 负责连接与心跳（怎么保活）——心跳任务随连接生灭（HELLO 给出间隔后启动，断线即取消），断线期间不在 reply 队列堆积过期心跳，也免去了调度器的生命周期管理。协议类通过返回 payload dict 经 reply 队列外发。
+3. **看门狗两层互补**（见 `connecter.py` 模块注释）：静默超时抓连接彻底失联，ACK 期限检查抓"有事件流但心跳已死"。阈值 `_SILENCE_FACTOR=1.1`、`_ACK_FACTOR=1.2` 是按 ACK 自然节奏校准的，**不能压到 1× 整**，否则正常抖动会周期性误杀（误杀由 RESUME 兜底，不丢消息）。重连退避只在连接稳定存活（`_STABLE_SECONDS`）后才归一，抖动的服务端不会被 1s 间隔反复探测。
+4. **handler 异常就地隔离**：`_invoke` 捕获记日志，`dispatch` 主循环另有兜底；单条事件的单个 handler 失败不影响进程。`background=True` 的 handler 进后台任务（emit 不等它），任务由 emitter 持强引用、`close()` 统一取消。
+5. **注入约定**：handler 参数按形参标注解析——`payloads.py` 里的 dataclass → 解析后的 payload 对象；`Event` → 事件封装；登记进 `emitter.services` 的组件类型（如 `BotApi`）→ 实例；未标注或未登记 → 回退传**原始 d**（协议事件的 d 可能是标量，如 INVALID_SESSION 的 resumable 布尔；dict 化会丢真值——这里曾出过 bug）。解析是纯同步查表（`get_type_hints` + dict），无框架、无运行时魔法。
+6. **OpenAPI 请求内核自治**：`api/core.py` 统一处理鉴权头、429 限流重试（优先 `Retry-After`，脏值容错，退避封顶）与 401 刷新 token 重试一次；v2/channel/guild 三个域方法集继承内核组合成 `BotApi`，新增域加模块即可，方法对用户始终平铺在 `BotApi` 上。
 
 ## 扩展点
 
 - **新增接入方式**（如轮询/其他平台）：实现 `Connecter.run()` 与 `BaseProtocol.register()`，在 `run_loop` 的 `match` 装配分支加一个 `case`，`Config.load` 的白名单加一个名字。
-- **新增业务 API**：在 `api.py` 的 `BotApi` 上加方法（或独立模块组合 `BotApi`），全部自动获得鉴权、超时与错误处理。群/单聊消息经 `_post_message` 统一处理 msg_id/msg_seq/media 语义；已有方法覆盖：单聊/群聊消息与富媒体上传、频道消息/撤回/表态、公告、精华消息、日程、禁言、频道信息查询（guild/channels/roles/member）。
+- **新增业务 API**：在 `api/` 对应域模块（`v2`/`channel`/`guild`）加方法即自动平铺到 `BotApi`，全部获得鉴权、限流重试与错误处理；新增域则新建模块并组合进 `api/__init__.py` 的 `BotApi`。群/单聊消息经 `_post_message` 统一处理 msg_id/msg_seq/media 语义；已有方法覆盖：单聊/群聊消息与富媒体上传、频道消息/撤回/表态、公告、精华消息、日程、禁言、频道信息查询（guild/channels/roles/member）。
 - **新增事件类型 dataclass**：在 `payloads.py` 定义 dataclass 并登记 `EVENT_TYPES`，handler 即可按类型标注拿解析结果；未收录事件回退传 dict。当前已覆盖 intents.toml 的全部事件组（消息、成员变动、审核、表态、互动、论坛、音频）。
 
 ## 测试
@@ -125,7 +127,7 @@ sequenceDiagram
 
 - 纯逻辑：crypto 往返、intents 解析、Config 校验、`_route` 路由边界、webhook 去重、序列号单调性、handler 异常隔离与 reply 回流、payload dataclass 解析、BotApi 各业务方法的拼参（Recording 子类截获 request）。
 - **网络集成**（`test_ws_integration.py` / `test_webhook_integration.py`）：
-  - WebSocket：aiohttp 假网关（token 接口 + gateway + ws 协议行为）端到端跑通 HELLO → IDENTIFY → READY 会话捕获 → apscheduler 心跳/ACK → 业务事件 dataclass 分发；
+  - WebSocket：aiohttp 假网关（token 接口 + gateway + ws 协议行为）端到端跑通 HELLO → IDENTIFY → READY 会话捕获 → 心跳/ACK（心跳任务随连接生灭）→ 业务事件 dataclass 分发；
   - Webhook：真实起 `WebhookConnecter` 的 http server（TestServer），覆盖 op=13 验证应答（签名内容正确性）、合法签名放行分发、坏签名 401、同 id 去重。
 
-两套集成测试验证的都是真实连接路径，改接入层/协议层后跑 `uv run pytest` 即可回归。
+另有 429/401 重试、token 并发锁、op=9 resumable 布尔注入、background 后台并发与 `close()` 收尾的专项单测。两套集成测试验证的都是真实连接路径，改接入层/协议层后跑 `uv run pytest` 即可回归。

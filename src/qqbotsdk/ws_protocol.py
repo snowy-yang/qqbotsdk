@@ -1,19 +1,18 @@
-"""WebSocket 接入的协议层：IDENTIFY/RESUME 鉴权、定时心跳、序列号跟踪。
+"""WebSocket 接入的协议层：IDENTIFY/RESUME 鉴权、序列号跟踪与会话保持。
 
-识别 HELLO 后启动 apscheduler 心跳；断线重连时若已有 session_id
-则发 RESUME 续传，收到不可恢复的 INVALID_SESSION 才清空会话重新 IDENTIFY。
+心跳与连接生命周期归 WebsocketConnecter；本层只负责会话语义——
+识别 HELLO 后按有无 session_id 决定 RESUME 续传或 IDENTIFY 新建，
+收到不可恢复的 INVALID_SESSION（d=false）才清空会话重新 IDENTIFY。
 """
 
 from tomllib import load
 from typing import override
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
 
 from .config import Config
 from .emitter import BaseProtocol, EventEmitter
 from .model import (
-    HelloData,
     IdentifyData,
     Intent,
     Opcode,
@@ -22,7 +21,6 @@ from .model import (
     payload_of,
 )
 from .payloads import Ready
-from .queue import EventQueue
 from .session import Session
 from .token import AccessToken
 
@@ -49,24 +47,14 @@ def get_intents(path: str) -> int:
 
 
 class WebsocketProtocol(BaseProtocol):
-    def __init__(
-        self,
-        config: Config,
-        queue: EventQueue,
-        session: Session,
-        token: AccessToken,
-    ) -> None:
+    def __init__(self, config: Config, session: Session, token: AccessToken) -> None:
         self._config = config
-        self._queue = queue
         self._session = session
         self._token = token
-        self._scheduler = AsyncIOScheduler()
-        self._heartbeat_job_id = "heartbeat"
 
     @override
     def register(self, emitter: EventEmitter) -> None:
         emitter.on(Opcode.HELLO)(self.identify)
-        emitter.on(Opcode.HEARTBEAT)(self.heartbeat)
         emitter.on("READY")(self.ready)
         emitter.on(Opcode.INVALID_SESSION)(self.invalid_session)
 
@@ -76,17 +64,7 @@ class WebsocketProtocol(BaseProtocol):
         if isinstance(seq, int):
             self._session.update_sequence(seq)
 
-    async def identify(self, data: HelloData) -> Payload:
-        if not self._scheduler.running:
-            self._scheduler.add_job(
-                self.send_heartbeat,
-                "interval",
-                seconds=data["heartbeat_interval"] / 1000,
-                id=self._heartbeat_job_id,
-            )
-            self._scheduler.start()
-            logger.info(f"心跳任务已启动，间隔 {data['heartbeat_interval']}ms")
-
+    async def identify(self) -> Payload:
         access_token = await self._token.get_access_token()
 
         d: ResumeData | IdentifyData
@@ -108,12 +86,6 @@ class WebsocketProtocol(BaseProtocol):
             }
 
         return payload_of(op, d)
-
-    async def heartbeat(self, _) -> Payload:
-        return payload_of(Opcode.HEARTBEAT, self._session.sequence_id)
-
-    async def send_heartbeat(self) -> None:
-        await self._queue.put_reply(await self.heartbeat(None))
 
     async def ready(self, ready: Ready) -> None:
         self._session.session_id = ready.session_id

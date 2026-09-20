@@ -16,9 +16,9 @@ from qqbotsdk import (
 |---|---|
 | `main(emitter=None)` | 同步入口：装配组件并阻塞运行，Ctrl+C 优雅退出 |
 | `run_loop(emitter=None)` | 异步入口：`asyncio.run(run_loop(ee))` 的内部实现，可自行 await |
-| `EventEmitter(queue)` | 分发主体，`@ee.on(...)` 注册 handler |
+| `EventEmitter(queue=None)` | 分发主体，`@ee.on(..., background=True)` 注册 handler（可选后台并发）；`queue` 不传自动创建 |
 | `ee.services` | `dict[type, Any]`，按类型登记可注入组件；`run_loop` 装配 SDK 内置组件，也可登记自定义类型 |
-| `EventQueue()` | 事件/应答队列；自建 emitter 时传入，`run_loop` 复用同一实例 |
+| `EventQueue()` | 事件/应答队列；`EventEmitter` 默认自建，需多处共享时手动传入（`ee.queue` 取实例） |
 | `Config` | frozen dataclass，环境变量一次性读齐（见下文） |
 | `Connecter` | 连接适配器 Protocol（接口），按 `CONNECTER` 自动选择实现 |
 | `BaseProtocol` | 协议层抽象基类，自定义协议处理器时继承并实现 `register(emitter)` |
@@ -34,15 +34,19 @@ from qqbotsdk.events import Event
 ## EventEmitter
 
 ```python
-ee = EventEmitter(EventQueue())
+ee = EventEmitter()
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")     # DISPATCH 事件用 t 名
 @ee.on("INVALID_SESSION")             # 协议事件用 Opcode 名（IDENTIFY/RESUME/HEARTBEAT/...）
 async def handler(...): ...
+
+@ee.on("GROUP_AT_MESSAGE_CREATE", background=True)   # 后台并发执行，不阻塞事件流
+async def slow(...): ...
 ```
 
 - **事件命名**：op=0（DISPATCH）按 payload 的 `t` 名路由；其余按 `Opcode` 名路由。协议事件（op≠0）已由内置协议层处理，一般只需监听业务事件；handler 返回 dict 时协议事件的返回值会回流给 ws 发送（业务事件不会）。
 - **异常隔离**：handler 异常就地记录（loguru），不影响同事件其他 handler 与主循环。
+- **后台并发**：`background=True` 的 handler 进后台任务，emit 不等它；同一事件内失去先后保证，返回值不回流，仅用于业务 handler。`run_loop` 退出时统一取消在飞后台任务（`ee.close()`）。
 - **`ee.handle(payload)`**：同步分发并返回首个 handler 的非空返回值，供协议层应答 op=13 等场景，业务代码不用。
 
 ### handler 参数注入约定
@@ -51,10 +55,10 @@ async def handler(...): ...
 
 | 标注 | 得到 | 未命中时 |
 |---|---|---|
-| payload dataclass（`payloads` 中的类型） | `Event.typed` 解析对象 | 回退传原始 dict |
+| payload dataclass（`payloads` 中的类型） | `Event.typed` 解析对象 | 回退传原始 d |
 | `Event` | 事件封装对象 | — |
-| 组件类型（`BotApi`/`Session`/`Config` 等已登记进 `ee.services` 的类型） | 登记的实例 | 回退传原始 dict |
-| 无标注 | 原始事件 dict | — |
+| 组件类型（`BotApi`/`Session`/`Config` 等已登记进 `ee.services` 的类型） | 登记的实例 | 回退传原始 d |
+| 无标注 | 原始 d（业务事件即事件 dict；协议事件可能是标量，如 `INVALID_SESSION` 的 `resumable: bool`） | — |
 
 ## Event
 
@@ -91,6 +95,8 @@ async def handler(...): ...
 ## BotApi
 
 `from qqbotsdk.api import BotApi`。经参数注入（`api: BotApi`）。自动附带 `Authorization: QQBot <token>` 鉴权头并刷新 token；HTTP ≥400 抛 `ApiError`。
+
+实现按域拆在 `qqbotsdk/api/` 包内（`core` 请求内核 + `v2`/`channel`/`guild` 方法集组合成 `BotApi`），方法名与下表一致；429 限流自动重试（最多 3 次，优先 `Retry-After`，退避封顶 30s），401 强制刷新 token 后重试一次。
 
 ### 通用
 
@@ -159,7 +165,7 @@ async def handler(...): ...
 
 ### ApiError
 
-`ApiError(RuntimeError)`，HTTP ≥400 时抛出：
+`ApiError(RuntimeError)`，重试后仍失败（HTTP ≥400）时抛出：
 
 | 属性 | 说明 |
 |---|---|

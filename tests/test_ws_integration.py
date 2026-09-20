@@ -114,9 +114,9 @@ async def test_websocket_end_to_end():
         queue = EventQueue()
         session = Session()
         emitter = EventEmitter(queue)
-        protocol = WebsocketProtocol(config, queue, session, token)
+        protocol = WebsocketProtocol(config, session, token)
         emitter.register_protocol(protocol)
-        connecter = WebsocketConnecter(config, http, token, queue)
+        connecter = WebsocketConnecter(config, http, token, session, queue)
 
         received: list[GroupAtMessage] = []
 
