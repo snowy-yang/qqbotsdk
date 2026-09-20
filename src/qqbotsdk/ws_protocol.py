@@ -29,6 +29,12 @@ INTENT_GROUPS: dict[str, Intent] = {name: Intent[name] for name in Intent.__memb
 
 
 def get_intents(path: str) -> int:
+    """按 Intents 大类（分组）读取订阅掩码：分组为 true 即 OR 该位。
+
+    配置只接受 `分组名 = true/false`。网关只认分组位掩码，组内事件无法
+    单独订阅，因此旧版"`[分组]` 表内逐事件开关"的写法、拼错的分组名与
+    非布尔值一律抛 ValueError——静默少订阅比启动即报错更难排查。
+    """
     try:
         with open(path, "rb") as f:
             config = load(f)
@@ -37,12 +43,20 @@ def get_intents(path: str) -> int:
         return 0
 
     intents = 0
-    for group, events in config.items():
-        if intent := INTENT_GROUPS.get(group):
-            if isinstance(events, dict) and any(events.values()):
-                intents |= intent
-        else:
-            logger.warning(f"未知的 intents 分组: {group}")
+    for group, enabled in config.items():
+        intent = INTENT_GROUPS.get(group)
+        if intent is None:
+            raise ValueError(f"未知的 intents 分组: {group}")
+        if isinstance(enabled, dict):
+            raise ValueError(
+                f"intents 分组 {group} 不支持组内事件开关，请改为 {group} = true/false"
+            )
+        if not isinstance(enabled, bool):
+            raise ValueError(
+                f"intents 分组 {group} 的值应为 true/false，实际为 {enabled!r}"
+            )
+        if enabled:
+            intents |= intent
     return intents
 
 

@@ -1,80 +1,18 @@
 # =============================================
-# 事件监听配置（TOML）
-# 修改 true 表示监听该事件，false 表示不监听
-# 分组名与位掩码对应关系见注释
+# 事件订阅配置（TOML）
+# 订阅粒度就是下面的大类（Intents 分组）：true 订阅该分组，false 不订阅。
+# QQ 网关只认分组位掩码，组内单个事件无法单独开关，
+# 各分组包含哪些事件见 docs/API.md 的「事件名 → dataclass 对照」。
 # =============================================
 
-# GUILDS (1 << 0)
-[GUILDS]
-GUILD_CREATE = false   # 当机器人加入新guild时
-GUILD_UPDATE = false   # 当guild资料发生变更时
-GUILD_DELETE = false   # 当机器人退出guild时
-CHANNEL_CREATE = false # 当channel被创建时
-CHANNEL_UPDATE = false # 当channel被更新时
-CHANNEL_DELETE = false # 当channel被删除时
-
-# GUILD_MEMBERS (1 << 1)
-[GUILD_MEMBERS]
-GUILD_MEMBER_ADD = false    # 当成员加入时
-GUILD_MEMBER_UPDATE = false # 当成员资料变更时
-GUILD_MEMBER_REMOVE = false # 当成员被移除时
-
-# GUILD_MESSAGES (1 << 9)  消息事件，仅 *私域* 机器人能够设置此 intents。
-[GUILD_MESSAGES]
-MESSAGE_CREATE = false # 发送消息事件（所有消息）
-MESSAGE_DELETE = false # 删除（撤回）消息事件
-
-# GUILD_MESSAGE_REACTIONS (1 << 10)
-[GUILD_MESSAGE_REACTIONS]
-MESSAGE_REACTION_ADD = false    # 为消息添加表情表态
-MESSAGE_REACTION_REMOVE = false # 为消息删除表情表态
-
-# DIRECT_MESSAGE (1 << 12)
-[DIRECT_MESSAGE]
-DIRECT_MESSAGE_CREATE = false # 当收到用户发给机器人的私信消息时
-DIRECT_MESSAGE_DELETE = false # 删除（撤回）消息事件
-
-# GROUP_AND_C2C_EVENT (1 << 25)
-[GROUP_AND_C2C_EVENT]
-C2C_MESSAGE_CREATE = true        # 用户单聊发消息给机器人时候
-FRIEND_ADD = true               # 用户添加使用机器人
-FRIEND_DEL = true               # 用户删除机器人
-C2C_MSG_REJECT = true          # 用户在机器人资料卡手动关闭"主动消息"推送
-C2C_MSG_RECEIVE = true         # 用户在机器人资料卡手动开启"主动消息"推送
-GROUP_AT_MESSAGE_CREATE = true # 用户在群里@机器人时收到的消息
-GROUP_ADD_ROBOT = true         # 机器人被添加到群聊
-GROUP_DEL_ROBOT = true         # 机器人被移出群聊
-GROUP_MSG_REJECT = true        # 群管理员主动关闭通知
-GROUP_MSG_RECEIVE = true       # 群管理员主动开启通知
-
-# INTERACTION (1 << 26)
-[INTERACTION]
-INTERACTION_CREATE = true # 互动事件创建时（音乐插件的卡片按钮回调依赖）
-
-# MESSAGE_AUDIT (1 << 27)
-[MESSAGE_AUDIT]
-MESSAGE_AUDIT_PASS = false   # 消息审核通过
-MESSAGE_AUDIT_REJECT = false # 消息审核不通过
-
-# FORUMS_EVENT (1 << 28)  论坛事件，仅 *私域* 机器人能够设置此 intents。
-[FORUMS_EVENT]
-FORUM_THREAD_CREATE = false        # 当用户创建主题时
-FORUM_THREAD_UPDATE = false        # 当用户更新主题时
-FORUM_THREAD_DELETE = false        # 当用户删除主题时
-FORUM_POST_CREATE = false          # 当用户创建帖子时
-FORUM_POST_DELETE = false          # 当用户删除帖子时
-FORUM_REPLY_CREATE = false         # 当用户回复评论时
-FORUM_REPLY_DELETE = false         # 当用户回复评论时
-FORUM_PUBLISH_AUDIT_RESULT = false # 当用户发表审核通过时
-
-# AUDIO_ACTION (1 << 29)
-[AUDIO_ACTION]
-AUDIO_START = false   # 音频开始播放时
-AUDIO_FINISH = false  # 音频播放结束时
-AUDIO_ON_MIC = false  # 上麦时
-AUDIO_OFF_MIC = false # 下麦时
-
-# PUBLIC_GUILD_MESSAGES (1 << 30)  消息事件，此为公域的消息事件
-[PUBLIC_GUILD_MESSAGES]
-AT_MESSAGE_CREATE = false     # 当收到@机器人的消息时
-PUBLIC_MESSAGE_DELETE = false # 当频道的消息被删除时
+GUILDS = false                  # (1 << 0)  频道/子频道增删改
+GUILD_MEMBERS = false           # (1 << 1)  频道成员增删改
+GUILD_MESSAGES = false          # (1 << 9)  频道全量消息，仅 *私域* 机器人
+GUILD_MESSAGE_REACTIONS = false # (1 << 10) 频道表情表态
+DIRECT_MESSAGE = false          # (1 << 12) 频道私信
+GROUP_AND_C2C_EVENT = true      # (1 << 25) 群/单聊消息、关注与主动消息开关事件
+INTERACTION = true              # (1 << 26) 互动事件（卡片按钮回调）
+MESSAGE_AUDIT = false           # (1 << 27) 消息审核结果
+FORUMS_EVENT = false            # (1 << 28) 论坛事件，仅 *私域* 机器人
+AUDIO_ACTION = false            # (1 << 29) 音频播放/上麦下麦
+PUBLIC_GUILD_MESSAGES = false   # (1 << 30) 频道公域消息（@机器人）

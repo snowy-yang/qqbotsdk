@@ -17,7 +17,7 @@ class MissingType:
 
 
 NOT_SET = MissingType()
-type NoneType = None | MissingType
+type NoneType = MissingType | None
 
 type DispatchData = Any
 

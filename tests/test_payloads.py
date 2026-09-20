@@ -28,6 +28,53 @@ def test_parse_group_at_message():
     assert msg.author is not None and msg.author.member_openid == "M1"
 
 
+def test_parse_group_full_message():
+    msg = parse_event(
+        "GROUP_MESSAGE_CREATE",
+        {
+            "author": {"member_openid": "M2"},
+            "content": "大家好",
+            "group_openid": "G1",
+            "id": "msgid-2",
+            "timestamp": "2026-01-01",
+            "message_type": 0,
+            "message_scene": {"unknown": False},
+            "attachments": [{"content_type": 1, "url": "https://x/img.png"}],
+            "mentions": [{"id": "U1"}],
+            "msg_elements": [{"type": 1, "text_element": {"content": "大家好"}}],
+        },
+    )
+    assert isinstance(msg, GroupAtMessage)
+    assert msg.group_openid == "G1"
+    assert msg.user_openid == "M2"
+    assert msg.message_type == 0
+    assert msg.message_scene == {"unknown": False}
+    assert msg.attachments == [{"content_type": 1, "url": "https://x/img.png"}]
+    assert msg.mentions == [{"id": "U1"}]
+    assert msg.msg_elements == [{"type": 1, "text_element": {"content": "大家好"}}]
+
+
+async def test_group_full_message_reaches_typed_handler():
+    queue = EventQueue()
+    emitter = EventEmitter(queue)
+    received: list[GroupAtMessage] = []
+
+    @emitter.on("GROUP_MESSAGE_CREATE")
+    async def handler(msg: GroupAtMessage):
+        received.append(msg)
+
+    await emitter.emit(
+        {
+            "op": Opcode.DISPATCH,
+            "t": "GROUP_MESSAGE_CREATE",
+            "d": {"content": "hi", "group_openid": "G1"},
+        }
+    )
+    assert len(received) == 1
+    assert received[0].content == "hi"
+    assert received[0].group_openid == "G1"
+
+
 def test_parse_c2c_message():
     msg = parse_event(
         "C2C_MESSAGE_CREATE",

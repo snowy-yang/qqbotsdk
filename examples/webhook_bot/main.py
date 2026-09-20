@@ -2,7 +2,7 @@
 
 运行前提：
 1. 项目根目录 .env 配好 APPID/APPSECRET，并设 CONNECTER=webhook；
-2. intents.toml 开启 GROUP_AT_MESSAGE_CREATE；
+2. intents.toml 订阅 GROUP_AND_C2C_EVENT 分组（仓库默认已开启）；
 3. 部署在公网 HTTPS 环境（平台仅支持 80/443/8080/8443 端口，
    本地调试可内网穿透），回调地址填
    https://<你的域名>:<端口><WEBHOOK_PATH>；
@@ -23,7 +23,9 @@ async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
     if not (msg.group_openid and msg.id):
         return
     await api.post_group_message(
-        msg.group_openid, content=f"收到：{msg.content}", msg_id=msg.id,
+        msg.group_openid,
+        content=f"收到：{msg.content}",
+        msg_id=msg.id,
     )
 
 

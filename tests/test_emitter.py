@@ -100,6 +100,32 @@ async def test_unregistered_annotation_falls_back_to_raw_dict():
 
 
 @pytest.mark.asyncio
+async def test_service_registered_after_handler_still_injects():
+    """回归：形参解析被缓存（签名+标注），但 services 命中必须在每条事件时判定。
+
+    先注册 handler、后登记组件是 run_loop 里的真实时序（用户 handler 在
+    main() 之前注册）；若缓存把"已解析好的实参"也存下来，这里会永远拿不到
+    实例。同一 handler 连发两条也一并覆盖缓存复用路径。
+    """
+    emitter = EventEmitter()
+
+    class Store:
+        pass
+
+    store = Store()
+    got: list[Store] = []
+
+    @emitter.on("READY")
+    async def handler(st: Store):
+        got.append(st)
+
+    emitter.services[Store] = store  # 登记晚于 handler 注册
+    await emitter.emit({"op": Opcode.DISPATCH, "t": "READY", "d": {}})
+    await emitter.emit({"op": Opcode.DISPATCH, "t": "READY", "d": {}})
+    assert got == [store, store]
+
+
+@pytest.mark.asyncio
 async def test_scalar_d_falls_back_to_raw_value():
     """回归：op=9 INVALID_SESSION 的 d 是布尔值，DI 回退必须传原始 d。
     此前实现把 d dict 化成 {}（恒 falsy），resumable=true 也被当成不可续传。

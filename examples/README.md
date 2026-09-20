@@ -10,7 +10,7 @@
 ## 运行前提
 
 1. 根目录 `.env` 配好 `APPID`/`APPSECRET`（`webhook_bot` 需另设 `CONNECTER=webhook`）；
-2. `intents.toml` 开启对应事件分组（`group_bot` 需 `GROUP_AND_C2C_EVENT` 与 `INTERACTION`，`webhook_bot` 需 `GROUP_AND_C2C_EVENT`）；
+2. `intents.toml` 订阅对应分组（`group_bot` 需 `GROUP_AND_C2C_EVENT` 与 `INTERACTION`，`webhook_bot` 需 `GROUP_AND_C2C_EVENT`；仓库默认配置已满足两者）；
 3. `group_bot` 要求机器人已开通群聊能力并拉入测试群；`webhook_bot` 要求公网 HTTPS 部署（平台仅支持 80/443/8080/8443 端口，本地调试可用内网穿透）。
 
 ## 运行

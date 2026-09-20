@@ -45,7 +45,10 @@ class EventEmitter:
         self._queue = queue if queue is not None else EventQueue()
         self.services: dict[type, Any] = {}
         self._protocol: BaseProtocol | None = None
-        self._hints: dict[Callable[..., Any], dict[str, Any]] = {}
+        # handler → (类型标注, 形参名)：签名解析较贵，缓存后每条事件只查表
+        self._signatures: dict[
+            Callable[..., Any], tuple[dict[str, Any], tuple[str, ...]]
+        ] = {}
         self._background: set[Callable[..., Any]] = set()
         self._bg_tasks: set[asyncio.Task[None]] = set()
 
@@ -194,13 +197,17 @@ class EventEmitter:
         封装，`services` 登记的组件类型 → 实例，其余（含无标注）→ 原始 d
         （Event.data 是 dict 化视图，标量 d 如 INVALID_SESSION 的 true/false
         必须走这里才能拿到原值）。"""
-        hints = self._hints.get(fn)
-        if hints is None:
-            hints = get_type_hints(fn)
-            self._hints[fn] = hints
+        cached = self._signatures.get(fn)
+        if cached is None:
+            cached = (
+                get_type_hints(fn),
+                tuple(inspect.signature(fn).parameters),
+            )
+            self._signatures[fn] = cached
+        hints, names = cached
 
         args: list[Any] = []
-        for name in inspect.signature(fn).parameters:
+        for name in names:
             hint = hints.get(name)
             if hint in PAYLOAD_TYPES:
                 args.append(event.typed)

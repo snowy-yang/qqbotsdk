@@ -23,20 +23,36 @@ def test_missing_file_returns_zero(tmp_path):
 
 
 def test_enabled_group_sets_bit(tmp_path):
-    path = write(tmp_path, "[GROUP_AND_C2C_EVENT]\nC2C_MESSAGE_CREATE = true\n")
+    path = write(tmp_path, "GROUP_AND_C2C_EVENT = true\n")
     assert get_intents(path) & (1 << 25)
 
 
+def test_only_enabled_groups_are_subscribed(tmp_path):
+    path = write(tmp_path, "GUILDS = true\nINTERACTION = false\nAUDIO_ACTION = true\n")
+    assert get_intents(path) == (1 << 0) | (1 << 29)
+
+
 def test_all_disabled_returns_zero(tmp_path):
-    path = write(tmp_path, "[GUILDS]\nGUILD_CREATE = false\n")
+    path = write(tmp_path, "GUILDS = false\nFORUMS_EVENT = false\n")
     assert get_intents(path) == 0
 
 
-def test_unknown_group_is_skipped(tmp_path):
-    path = write(
-        tmp_path, "[NOT_A_GROUP]\nFOO = true\n\n[GUILDS]\nGUILD_CREATE = true\n"
-    )
-    assert get_intents(path) == (1 << 0)
+def test_unknown_group_raises(tmp_path):
+    path = write(tmp_path, "NOT_A_GROUP = true\n")
+    with pytest.raises(ValueError, match="NOT_A_GROUP"):
+        get_intents(path)
+
+
+def test_non_bool_value_raises(tmp_path):
+    path = write(tmp_path, 'GUILDS = "yes"\n')
+    with pytest.raises(ValueError, match="true/false"):
+        get_intents(path)
+
+
+def test_legacy_per_event_switches_are_rejected(tmp_path):
+    path = write(tmp_path, "[GROUP_AND_C2C_EVENT]\nC2C_MESSAGE_CREATE = true\n")
+    with pytest.raises(ValueError, match="组内事件开关"):
+        get_intents(path)
 
 
 def test_config_load_defaults():

@@ -181,10 +181,12 @@ async def slow(...): ...
 
 ### 事件名 → dataclass 对照
 
+下表左列是 intents.toml 的订阅分组（订阅粒度即分组，组内事件无法单独开关），中列是同时属于该分组、会被一起推送的事件 `t` 名：
+
 | intents 分组 | 事件 t 名 | dataclass |
 |---|---|---|
 | GROUP_AND_C2C_EVENT | `C2C_MESSAGE_CREATE` | `C2CMessage` |
-| | `GROUP_AT_MESSAGE_CREATE` | `GroupAtMessage` |
+| | `GROUP_AT_MESSAGE_CREATE` / `GROUP_MESSAGE_CREATE` | `GroupAtMessage` |
 | | `FRIEND_ADD` / `FRIEND_DEL` | `FriendAdd` / `FriendDel` |
 | | `GROUP_ADD_ROBOT` / `GROUP_DEL_ROBOT` | `GroupAddRobot` / `GroupDelRobot` |
 | | `C2C_MSG_REJECT` / `C2C_MSG_RECEIVE` | `C2CMsgReject` / `C2CMsgReceive` |
@@ -206,11 +208,14 @@ async def slow(...): ...
 
 未收录的事件（如私域 `MESSAGE_CREATE`、`DIRECT_MESSAGE_DELETE`、`GUILD_MEMBER_*`）handler 收到原始 dict；新增事件在 `payloads.py` 加 dataclass 并登记 `EVENT_TYPES` 即可。
 
+`GROUP_MESSAGE_CREATE` 是群消息**全量模式**：需在开放平台开通"接收所有消息"权限，群里每条消息（不限 @机器人）都推送此事件，与 `GROUP_AT_MESSAGE_CREATE` 共用 `GroupAtMessage`。官方提示同一 msg_id 可能重复推送，业务侧需按 `id` 去重。
+
 ### 常用 dataclass 字段
 
 ```python
 Author            # id, user_openid, member_openid, username, bot
-GroupAtMessage    # id, content, group_openid, author, timestamp
+GroupAtMessage    # id, content, group_openid, author, timestamp,
+                  # message_type, message_scene, attachments, mentions, ark_data, msg_elements
 C2CMessage        # id, content, author, attachments, timestamp
 AtMessage         # id, content, channel_id, guild_id, author, member, timestamp
 DirectMessage     # 同 AtMessage

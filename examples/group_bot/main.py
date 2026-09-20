@@ -2,7 +2,7 @@
 
 运行前提：
 1. 项目根目录 .env 配好 APPID/APPSECRET（CONNECTER 用默认 websocket）；
-2. intents.toml 开启 GROUP_AND_C2C_EVENT 与 INTERACTION 分组的事件；
+2. intents.toml 订阅 GROUP_AND_C2C_EVENT 与 INTERACTION 两个分组（仓库默认已开启）；
 3. 机器人已在开放平台开通群聊能力，并被拉入测试群。
 
 运行：uv run python examples/group_bot/main.py
@@ -30,7 +30,10 @@ async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
             return
         upload = await api.upload_group_file(msg.group_openid, file_type=1, url=url)
         await api.post_group_message(
-            msg.group_openid, content="图来了", msg_id=msg.id, media=upload,
+            msg.group_openid,
+            content="图来了",
+            msg_id=msg.id,
+            media=upload,
         )
         return
 
@@ -49,7 +52,9 @@ async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
 
     # 普通文本：带 msg_id 被动回复（5 分钟内有效，同一条消息多次回复递增 msg_seq）
     await api.post_group_message(
-        msg.group_openid, content=f"你说：{msg.content}", msg_id=msg.id,
+        msg.group_openid,
+        content=f"你说：{msg.content}",
+        msg_id=msg.id,
     )
 
 
@@ -62,7 +67,8 @@ async def on_button_click(inter: Interaction, event: Event, api: BotApi) -> None
     # 被动回复的 event_id 是网关帧最外层的 id（形如 INTERACTION_CREATE:uuid），
     # 不是事件体里的裸 UUID——官方文档点名的常见坑
     await api.post_group_message(
-        inter.group_openid, content=f"你点了：{inter.button_data}",
+        inter.group_openid,
+        content=f"你点了：{inter.button_data}",
         event_id=event.event_id,
     )
 
@@ -76,7 +82,9 @@ async def on_robot_added(event: Event, api: BotApi) -> None:
         logger.info(f"机器人加入群聊 {group_openid}（无事件 ID，跳过欢迎语）")
         return
     await api.post_group_message(
-        group_openid, content="大家好，我是本群机器人，@我即可体验～", event_id=event_id,
+        group_openid,
+        content="大家好，我是本群机器人，@我即可体验～",
+        event_id=event_id,
     )
 
 
@@ -86,7 +94,9 @@ async def on_c2c_message(msg: C2CMessage, api: BotApi) -> None:
     if not (user_openid and msg.id):
         return
     # 单聊被动回复 60 分钟内有效，同一 msg_id 最多回复 4 次
-    await api.post_c2c_message(user_openid, content=f"你说：{msg.content}", msg_id=msg.id)
+    await api.post_c2c_message(
+        user_openid, content=f"你说：{msg.content}", msg_id=msg.id
+    )
 
 
 @ee.on("FRIEND_ADD")

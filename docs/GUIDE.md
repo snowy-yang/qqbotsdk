@@ -42,7 +42,15 @@ WEBHOOK_PATH=/qqbot/webhook
 
 ## 事件订阅（intents.toml）
 
-SDK 启动时读取 `intents.toml` 计算订阅掩码，把想收的事件改成 `true` 即可。分组与特权要求：
+SDK 启动时读取 `intents.toml` 计算订阅掩码。订阅粒度就是下面表格里的大类（Intents 分组），把某组设为 `true` 即订阅该组下的全部事件：
+
+```toml
+GROUP_AND_C2C_EVENT = true   # 群/单聊消息与关注事件
+INTERACTION = true           # 互动事件（卡片按钮回调）
+GUILDS = false               # 频道/子频道增删改
+```
+
+QQ 网关只认分组位掩码，**组内单个事件无法单独开关**——能收到哪些事件由订阅了哪些分组决定（各组包含哪些事件见 [API.md](API.md#事件名--dataclass-对照)）。分组与特权要求：
 
 | 分组 | 位掩码 | 说明 |
 |---|---|---|
@@ -58,7 +66,7 @@ SDK 启动时读取 `intents.toml` 计算订阅掩码，把想收的事件改成
 | `AUDIO_ACTION` | 1 << 29 | 音频播放/上麦下麦 |
 | `PUBLIC_GUILD_MESSAGES` | 1 << 30 | 频道公域消息（AT_MESSAGE_CREATE） |
 
-事件名到 payload dataclass 的完整对照见 [API.md](API.md#事件-payload)。
+分组名即 `Intent` 枚举成员名。配置只接受 `分组名 = true/false`；拼错的分组名、非布尔值，以及旧版"表内逐事件开关"的写法都会在启动时直接抛 `ValueError`（与其静默少订阅，不如启动即报错）。文件缺失则告警并按不订阅任何事件启动。
 
 ## 接入方式选择
 
@@ -114,7 +122,7 @@ handler 参数按标注解析的完整规则：
 
 - 业务事件（op=0）处理器的**返回值不会回流**，回复消息请在 handler 里显式调 API。
 - 单个 handler 抛异常只记录日志，不影响同事件其他 handler 和主循环。
-- 未订阅（intents.toml 为 `false`）的事件不会到达 handler。
+- 所在分组未订阅（intents.toml 中为 `false`）的事件不会到达 handler。
 - 自定义组件也能注入：`ee.services[MyService] = MyService(...)` 登记后，handler 形参标注 `MyService` 即可拿到实例。
 
 ### 后台并发 handler
@@ -228,6 +236,6 @@ uv run python main.py
 - **启动后频繁重连 / READY 收不到**：QQ 网关接口有频率限制（code 100017），连续重启需间隔约 1 分钟；SDK 已内置退避，等即可。
 - **`ApiError`**：HTTP ≥400 时抛出，`e.status`/`e.code`/`e.message` 可用于排查（如被动回复超时、msg_seq 重复、内容审核不通过）。
 - **日志出现 `TokenError: 获取 access_token 失败`**：appid/secret 配置错误或被平台拒绝，`code`/`message` 就是 QQ 返回的真实原因，对照官方错误码排查即可。
-- **handler 没被触发**：检查 intents.toml 对应事件是否为 `true`；群/单聊事件需开通对应能力；频道消息事件区分公私域。
+- **handler 没被触发**：检查 intents.toml 中该事件所属分组是否为 `true`；群/单聊事件需开通对应能力；频道消息事件区分公私域。
 - **想收原始数据**：handler 裸参数或标 `Event`，`event.raw` 是完整线上 payload（含 op/t/d）。
 - **日志**：SDK 用 loguru 输出中文日志，连接、重连、API 失败、handler 异常均有记录，可直接用 loguru 配置格式与落盘。

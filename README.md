@@ -43,7 +43,7 @@ flowchart TB
 - 内置协议处理器（`ws_protocol.py` / `webhook_protocol.py`）：HELLO 鉴权（IDENTIFY/RESUME 自动切换）、apscheduler 定时心跳、READY 会话捕获、INVALID_SESSION 会话失效处理
 - 断线自动重连（指数退避 + 心跳看门狗），重连时自动 RESUME 续传
 - Webhook 接入自带 Ed25519 验签、op=13 验证应答与 60s TTL 事件去重
-- 事件订阅由项目根目录的 `intents.toml` 控制，将对应事件改为 `true` 即可
+- 事件订阅由项目根目录的 `intents.toml` 控制，按大类（Intents 分组）开关，将对应分组改为 `true` 即可
 - Markdown 与内嵌按钮一等支持：`post_group_message(..., markdown=..., keyboard=...)` 自动置 msg_type=2，`respond_interaction()` 回应按钮回调
 - 组件在 `run_loop` 显式装配（无 DI 框架依赖），全 SDK 共享一个 HTTP 连接池
 

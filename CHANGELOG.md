@@ -12,6 +12,7 @@
 - 按钮快捷构造与点击处理：`button()`/`keyboard()` 生成内嵌按钮（免手写嵌套 dict）；`Interaction` 新增 `button_data` 属性（被点按钮的 action.data）；examples/group_bot 补 `/btn` 卡片与 `INTERACTION_CREATE` 回调示例
 - handler 后台并发：`@ee.on(..., background=True)` 把 handler 放进后台任务，不阻塞事件流（同事件内失去先后保证，返回值不回流）；`run_loop` 退出经 `emitter.close()` 统一取消在飞任务
 - OpenAPI 限流与鉴权自愈：`BotApi.request` 对 429 自动重试（最多 3 次，优先 `Retry-After`，脏值容错解析，退避封顶 30s）；401 强制刷新 token 后重试一次，token 被服务端提前作废不再直接抛错
+- 群消息全量模式：新增 `GROUP_MESSAGE_CREATE` 事件接收，与 `GROUP_AT_MESSAGE_CREATE` 共用 `GroupAtMessage`（需在开放平台开通"接收所有消息"权限，不限 @机器人）；`GroupAtMessage` 补齐官方新增的 `message_type`/`message_scene`/`attachments`/`mentions`/`ark_data`/`msg_elements` 字段
 - 文档站点：基于 docsify（侧边栏、全文搜索、代码复制、mermaid 图渲染、分页），`npx docsify-cli serve` 本地预览；新增 `examples/README.md` 示例索引
 
 ### 变更
@@ -23,6 +24,8 @@
 - 重连退避只在连接稳定存活（≥60s）后才重置归一，抖动的服务端不再被 1s 间隔反复探测
 - `AccessToken` 并发安全：换取过程持 `asyncio.Lock` 双重检查（并发首调只发一次请求）；到期判断改用 monotonic 时钟并预留 30s 提前刷新余量；新增 `invalidate()` 供 401 时强制作废
 - 组件构造签名瘦身：`WebsocketProtocol(config, session, token)` 移除未使用的 `queue`；`WebsocketConnecter` 改收 `(config, http, token, session, queue)`；`WebhookConnecter` 改收 `(config, queue, handle_event)`，op=13 应答经注入的回调取得，不再依赖具体 `EventEmitter`；`Session` 合并 `sequence_id`/`seq` 双属性为 `seq`（心跳序列号无历史时发 0 而非 null）；移除服务端不会推送的 HEARTBEAT 死代码 handler；`ApiError`/`TokenError` 的错误响应解析合并为 `model.error_parts`
+- **intents.toml 改为只按大类订阅**：配置项从"`[分组]` 表内逐事件开关"简化为"`分组名 = true/false`"（如 `GROUP_AND_C2C_EVENT = true`）——网关只接受分组位掩码，组内事件本就无法单独订阅，此前的逐事件开关只是"组内任一为 true 即订阅整组"的装饰。破坏性变更：旧格式（表内逐事件开关）不再兼容，与拼错的分组名、非布尔值一样在启动时直接抛 `ValueError`，而非静默少订阅
+- 形参注入缓存化：handler 的签名与类型标注解析结果（此前每条事件都重新跑 `inspect.signature`/`get_type_hints`）合并缓存，`services` 命中改为每条事件实时判定——先注册 handler、后登记组件的既有装配顺序不受影响
 
 ### 移除
 

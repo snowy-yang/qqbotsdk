@@ -33,13 +33,24 @@ class Ready:
 
 @dataclass(slots=True)
 class GroupAtMessage:
-    """群里 @机器人的消息（GROUP_AT_MESSAGE_CREATE）。"""
+    """群消息：GROUP_AT_MESSAGE_CREATE（@机器人）与 GROUP_MESSAGE_CREATE
+    （全量模式，需在开放平台开通"接收所有消息"，不限 @机器人）共用，
+    两事件字段完全一致。
+
+    官方提示同一 msg_id 可能重复推送，业务侧需按 id 去重。
+    """
 
     id: str | None = None
     content: str | None = None
     group_openid: str | None = None
     author: Author | None = None
     timestamp: str | None = None
+    message_type: int | None = None
+    message_scene: dict | None = None
+    attachments: list[dict] | None = None
+    mentions: list[dict] | None = None
+    ark_data: dict | None = None
+    msg_elements: list[dict] | None = None
 
     @property
     def user_openid(self) -> str | None:
@@ -277,6 +288,7 @@ class AudioAction:
 EVENT_TYPES: dict[str, type] = {
     "READY": Ready,
     "GROUP_AT_MESSAGE_CREATE": GroupAtMessage,
+    "GROUP_MESSAGE_CREATE": GroupAtMessage,
     "C2C_MESSAGE_CREATE": C2CMessage,
     "FRIEND_ADD": FriendAdd,
     "FRIEND_DEL": FriendDel,
