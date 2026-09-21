@@ -13,6 +13,7 @@
 - handler 后台并发：`@ee.on(..., background=True)` 把 handler 放进后台任务，不阻塞事件流（同事件内失去先后保证，返回值不回流）；`run_loop` 退出经 `emitter.close()` 统一取消在飞任务
 - OpenAPI 限流与鉴权自愈：`BotApi.request` 对 429 自动重试（最多 3 次，优先 `Retry-After`，脏值容错解析，退避封顶 30s）；401 强制刷新 token 后重试一次，token 被服务端提前作废不再直接抛错
 - 群消息全量模式：新增 `GROUP_MESSAGE_CREATE` 事件接收，与 `GROUP_AT_MESSAGE_CREATE` 共用 `GroupAtMessage`（需在开放平台开通"接收所有消息"权限，不限 @机器人）；`GroupAtMessage` 补齐官方新增的 `message_type`/`message_scene`/`attachments`/`mentions`/`ark_data`/`msg_elements` 字段
+- **连接寿命主动重连**：服务端约 1 小时后会无预警断开连接（实测），故连接存活到 `_SERVER_LIFETIME - _RECONNECT_MARGIN`（默认 60min − 10min = 50min）时由 SDK 主动收尾重连——走正常 RESUME 续传、期间消息由网关补发，而不是被服务端掐断后由看门狗判成异常断开；收帧超时在"静默阈值"与"寿命余量"两个截止里取先到者，静默仍归看门狗处理
 - 文档站点：基于 docsify（侧边栏、全文搜索、代码复制、mermaid 图渲染、分页），`npx docsify-cli serve` 本地预览；新增 `examples/README.md` 示例索引
 
 ### 变更

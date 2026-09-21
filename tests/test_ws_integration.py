@@ -25,11 +25,15 @@ class FakeGateway:
     def __init__(self) -> None:
         self.identifies: list[dict] = []
         self.heartbeats = 0
+        self.resumes: list[dict] = []
+        self.connections = 0
         self.runner: web.AppRunner | None = None
         self.port = 0
         # 测试用同步点
         self.ready_sent = asyncio.Event()
         self.got_dispatch = asyncio.Event()
+        self.second_connection = asyncio.Event()
+        self.resume_received = asyncio.Event()
 
     async def start(self) -> None:
         app = web.Application()
@@ -56,6 +60,9 @@ class FakeGateway:
     async def _ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
+        self.connections += 1
+        if self.connections >= 2:
+            self.second_connection.set()
 
         await ws.send_json({"op": 10, "d": {"heartbeat_interval": 300}})
         s = 0
@@ -87,10 +94,41 @@ class FakeGateway:
                         "d": {"content": "ping", "group_openid": "G1"},
                     }
                 )
+            elif op == 6:  # RESUME
+                self.resumes.append(payload)
+                self.resume_received.set()
             elif op == 1:  # HEARTBEAT
                 self.heartbeats += 1
                 await ws.send_json({"op": 11})
         return ws
+
+
+def make_config(gw: FakeGateway) -> Config:
+    return Config(
+        app_id="app",
+        app_secret="secret",
+        base_url=f"http://127.0.0.1:{gw.port}",
+        timeout=None,  # type: ignore[arg-type]
+        connecter="websocket",
+        intents_file="no-such-intents.toml",  # 测试环境无配置，intents=0
+        webhook_host="127.0.0.1",
+        webhook_port=0,
+        webhook_path="/x",
+    )
+
+
+def build_connecter(
+    config: Config,
+) -> tuple[ClientSession, EventEmitter, WebsocketConnecter]:
+    http = ClientSession(timeout=config.timeout)
+    token = AccessToken(config, http)
+    session = Session()
+    emitter = EventEmitter(EventQueue())
+    protocol = WebsocketProtocol(config, session, token)
+    connecter = WebsocketConnecter(
+        config, http, token, session, emitter.queue, protocol
+    )
+    return http, emitter, connecter
 
 
 @pytest.mark.asyncio
@@ -98,18 +136,7 @@ async def test_websocket_end_to_end():
     gw = FakeGateway()
     await gw.start()
     try:
-        config = Config(
-            app_id="app",
-            app_secret="secret",
-            base_url=f"http://127.0.0.1:{gw.port}",
-            timeout=None,  # type: ignore[arg-type]
-            connecter="websocket",
-            intents_file="no-such-intents.toml",  # 测试环境无配置，intents=0
-            webhook_host="127.0.0.1",
-            webhook_port=0,
-            webhook_path="/x",
-        )
-
+        config = make_config(gw)
         http = ClientSession(timeout=config.timeout)
         token = AccessToken(config, http)
         queue = EventQueue()
@@ -162,6 +189,38 @@ async def test_websocket_end_to_end():
             dispatch_task.cancel()
             connect_task.cancel()
             await asyncio.gather(dispatch_task, connect_task, return_exceptions=True)
+            await http.close()
+    finally:
+        await gw.stop()
+
+
+@pytest.mark.asyncio
+async def test_proactive_reconnect_before_server_lifetime():
+    """服务端约 1 小时后会无预警掐断连接：应在临到期前主动重连。
+
+    把寿命阈值压到极短让这一刻在测试里立刻发生。第二次连接必须是 RESUME
+    ——说明是正常收尾后按会话续传（服务端补发期间消息），而不是被掐断后
+    从头 IDENTIFY。
+    """
+    gw = FakeGateway()
+    await gw.start()
+    try:
+        config = make_config(gw)
+        http, _emitter, connecter = build_connecter(config)
+        # 0.5s 寿命 - 0.3s 余量 = 连接存活约 0.2s 后主动重连；"稳定"阈值一并调小，
+        # 让这次主动重连被判定为正常收尾（立即重连，不退避）
+        connecter._SERVER_LIFETIME = 0.5
+        connecter._RECONNECT_MARGIN = 0.3
+        connecter._STABLE_SECONDS = 0.1
+        connect_task = asyncio.create_task(connecter.run())
+        try:
+            await asyncio.wait_for(gw.resume_received.wait(), timeout=10)
+            assert gw.connections >= 2  # 确实重连过
+            assert len(gw.identifies) == 1  # 只 IDENTIFY 过一次
+            assert gw.resumes[0]["d"]["session_id"] == "S1"  # 续传同一会话
+        finally:
+            connect_task.cancel()
+            await asyncio.gather(connect_task, return_exceptions=True)
             await http.close()
     finally:
         await gw.stop()

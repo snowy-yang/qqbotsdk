@@ -64,9 +64,7 @@ async def test_failed_reconnect_backs_off_and_logs_disconnect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """连不上时记断开并按退避等待，退避逐次翻倍。"""
-    sleeps, logs = await _run_capture(
-        monkeypatch, [3600.0, TimeoutError(), 0.0, 0.0]
-    )
+    sleeps, logs = await _run_capture(monkeypatch, [3600.0, TimeoutError(), 0.0, 0.0])
 
     # 健康断开 → 无 sleep；失败后依次 1s、2s、4s
     assert sleeps == [1, 2, 4]

@@ -1,4 +1,4 @@
-"""连接适配器：把两种接入方式（WebSocket / Webhook）归一为事件流入、reply 队列流出。
+"""连接适配器：把两种接入方式（WebSocket / Webhook）归一为业务事件流入、出站帧流出。
 
 每条帧先交给本适配器注入的协议处理器（`BaseProtocol.on_frame`）处理协议语义，
 只有业务事件（op=0）才入队交给 emitter 分发给用户 handler——协议帧与业务事件
@@ -6,12 +6,13 @@
 
 - WebsocketConnecter：gateway 握手 + ws 长连接，指数退避重连（连接稳定
   存活才把退避归一，抖动的服务端不会被 1s 间隔反复探测）；心跳任务随
-  连接生灭——HELLO 给出间隔后周期投递，断线即取消，不在 reply 队列堆积
+  连接生灭——HELLO 给出间隔后周期投递，断线即取消，不在出站缓冲堆积
   过期心跳；看门狗两层互补——receive 的静默超时抓"连接彻底静默"，
-  收到消息时的 ACK 期限检查抓"有事件流但心跳已死"；
+  收到消息时的 ACK 期限检查抓"有事件流但心跳已死"；另外服务端约 1 小时
+  会主动断开连接，故临到期前主动重连（经 RESUME 补发消息），不等被掐断；
 - WebhookConnecter：aiohttp server 接收回调，验签失败 401，
   按 payload id 做 60s TTL 去重，正常推送进事件队列；op=13 验证请求
-  由协议处理器就地应答（HTTP 响应不走 reply 队列）。
+  由协议处理器就地应答（HTTP 响应不走队列）。
 """
 
 import asyncio
@@ -51,6 +52,10 @@ class WebsocketConnecter(Connecter):
     _ACK_FACTOR = 1.2
     # 连接存活超过该时长才算稳定，才把退避归一
     _STABLE_SECONDS = 60.0
+    # 服务端约 1 小时后会主动断开连接（无预警，实测）：临到期前留出余量主动重连，
+    # 这样是正常收尾 + RESUME 补发消息，而不是被掐断后由看门狗判成异常
+    _SERVER_LIFETIME = 60 * 60.0
+    _RECONNECT_MARGIN = 10 * 60.0
 
     def __init__(
         self,
@@ -147,9 +152,23 @@ class WebsocketConnecter(Connecter):
     ) -> None:
         interval: float = 0
         last_ack = monotonic()
+        # 服务端约 1 小时后会主动断开，临到期前主动重连：return 即让 _connect 正常
+        # 收尾，run() 见存活超过稳定阈值便立刻重连，经 RESUME 补发这段时间的消息
+        deadline = monotonic() + self._SERVER_LIFETIME - self._RECONNECT_MARGIN
         while not ws.closed:
-            # HELLO 前不设超时；之后按看门狗阈值等待任何消息
-            msg = await ws.receive(timeout=interval * self._SILENCE_FACTOR or None)
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                logger.info("连接到达服务端寿命上限，主动重连")
+                return
+            # 两个截止取先到者：静默阈值盯"连接静默"，寿命余量保证临到期准时醒来
+            silence = interval * self._SILENCE_FACTOR
+            watchdog = bool(silence) and silence < remaining
+            try:
+                msg = await ws.receive(timeout=silence if watchdog else remaining)
+            except TimeoutError:
+                if watchdog:
+                    raise  # 静默过久 → 交给 run() 走看门狗重连
+                continue  # 寿命余量到点 → 回顶部主动收尾
             if msg.type != WSMsgType.TEXT:
                 logger.warning(f"WebSocket 收到非文本帧，连接终止: {msg.type}")
                 break
