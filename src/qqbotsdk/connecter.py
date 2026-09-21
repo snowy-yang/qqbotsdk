@@ -72,22 +72,42 @@ class WebsocketConnecter(Connecter):
         self._outbound: asyncio.Queue[Payload] = asyncio.Queue()
 
     async def run(self) -> None:
+        """重连主循环。
+
+        健康连接被服务端要求重连（如满 1 小时的连接限寿）时不等待、也不记
+        连接/断开日志，直接立刻重连——这期间的事件由网关按 RESUME 补发，
+        盲区最小；只有连接未能稳定存活（握手失败、看门狗超时、限流、抖动）
+        才记断开并按退避等待，`_STABLE_SECONDS` 保证抖动的服务端不会被 1s
+        间隔反复探测。
+        """
         backoff: float = 1
+        delay: float = 0  # 0 表示立刻重连（首次重试不等待）
         while True:
+            if delay:
+                logger.info(f"{delay}s 后重连")
+                await asyncio.sleep(delay)
             try:
                 lived = await self._connect()
-                if lived >= self._STABLE_SECONDS:
-                    backoff = 1
             except RateLimitError:
                 logger.warning("gateway 触发频率限制")
-                backoff = 60
+                delay = backoff = 60
+                continue
             except TimeoutError:
                 logger.warning("心跳超时，触发看门狗重连")
+                lived = 0.0
             except (aiohttp.ClientError, RuntimeError) as e:
                 logger.warning(f"WebSocket 连接异常: {e}")
-            logger.info(f"{backoff}s 后重连")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 60)
+                lived = 0.0
+
+            if lived >= self._STABLE_SECONDS:
+                # 连接曾稳定存活：属正常断开（服务端要求重连），立刻重连
+                backoff = 1
+                delay = 0
+            else:
+                # 没能稳定存活：需要延迟重试，此时才记断开
+                logger.warning("WebSocket 已断开")
+                delay = backoff
+                backoff = min(backoff * 2, 60)
 
     async def _connect(self) -> float:
         """建立一次连接直到断开，返回存活秒数（供 run 判断是否重置退避）。"""
@@ -107,7 +127,6 @@ class WebsocketConnecter(Connecter):
             raise RuntimeError(f"获取 gateway 失败: {data}")
 
         async with self._http.ws_connect(gateway, headers=headers) as ws:
-            logger.info("WebSocket 已连接")
             # HELLO 才给出心跳间隔；receive 解析到后经 Future 交给心跳任务
             interval: asyncio.Future[float] = asyncio.get_running_loop().create_future()
             receive = asyncio.create_task(self.receive_helper(ws, interval))
@@ -121,7 +140,6 @@ class WebsocketConnecter(Connecter):
                 # 取回被取消任务的结果，避免 "Task exception was never retrieved"，
                 # 也确保它们在下一轮重连前真正停下
                 await asyncio.gather(send, heartbeat, return_exceptions=True)
-            logger.info("WebSocket 已断开")
         return monotonic() - started
 
     async def receive_helper(
