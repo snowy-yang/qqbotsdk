@@ -7,6 +7,12 @@
 
 ### 新增
 
+- **旧版（频道侧）OpenAPI 对齐（对照旧版 wiki 全集核对）**：私信（`create_dms` 建会话、`post_dms_message` 发信、`withdraw_dms_message` 撤回）；身份组增删改与成员授予/收回；频道成员列表/踢出（可拉黑+撤回历史消息）/身份组成员列表/子频道在线成员数；全员与批量成员禁言；子频道用户/身份组权限查改；频道消息频率设置；接口权限列表与授权链接申请；新增 `audio` 域（播放控制、上/下麦）与 `forum` 域（帖子列表/详情/发帖/删帖）组合进 `BotApi`（`AUDIO_STATUS_*`、`FORUM_FORMAT_*` 常量随模块导出）
+- **事件全量对齐**：新增 `GROUP_MEMBER_ADD`/`GROUP_MEMBER_REMOVE`（共用 `GroupMemberChange`）、`GROUP_JOIN_REQUEST`（入群申请，含验证问答与自动审批命中信息，仅机器人是群管理员时推送）、`SUBSCRIBE_MESSAGE_STATUS`（订阅消息授权状态）四个 payload；`Intent` 枚举与 intents.toml 补上此前缺失的 `GROUP_MEMBER_EVENT (1<<24)` 分组（默认 false，需订阅请手动开启）
+- **v2 OpenAPI 全量对齐（对照官方 2026-09 新版文档站逐页核对）**：新增 `group` 域方法集组合进 `BotApi`——群信息/成员列表/成员详情/机器人群内状态、入群申请列表与审批、群黑名单增删查、群成员批量移除、群禁言状态查询、入群自动审批策略（增删改查/执行/白名单，机器人维度全局配置）
+- v2 消息扩展：`post_c2c_stream_message` 流式分批发送单聊消息（AI 逐段下发，`STREAM_*` 常量取值）；`prepare_group_upload`/`finish_group_upload_part` 与 `prepare_c2c_upload`/`finish_c2c_upload_part` 大文件分片上传（预上传拿预签名 URL，分片 PUT 后逐片确认，最后携 `upload_id` 走原上传接口合并）；`generate_url_link` 生成机器人分享链接（`callback_data` 透传）
+- 频道域补充：`create_channel`/`update_channel`/`delete_channel` 子频道增删改（私域接口）、`get_me_guilds` 机器人加入的频道列表（分页）
+- **斜线指令管理**：新增 `panel` 域方法集组合进 `BotApi`——指令面板（聊天输入框输入 `/` 唤起的指令列表）的增删改查与关联对象管理（`create_panel`/`get_panels`/`get_panel`/`update_panel`/`delete_panel`/`update_panel_targets`，支持 c2c/group/channel/dm 四场景，c2c/group 可按指定对象生效）；附全局自定义菜单 `get_menu`/`update_menu`（仅 C2C，`send_message` 类型点击后把 `/指令` 填入输入框）；`SCOPE_*`/`TARGET_*`/`ITEM_*` 等取值常量随模块导出
 - Markdown 与内嵌按钮一等支持：`post_group_message`/`post_c2c_message` 新增 `markdown`/`keyboard` 参数（自动置 msg_type=2，与 content 互斥）；新增 `respond_interaction()` 回应按钮回调；`Interaction` payload 补齐 `chat_type`/`scene`/`group_openid` 等官方字段
 - `Event` 新增 `event_id` 属性（推送信封顶层的事件 id，与 op/t/d 平级）：非消息事件（GROUP_ADD_ROBOT 等）的被动回复不再需要手动 `event.raw["id"]`
 - 按钮快捷构造与点击处理：`button()`/`keyboard()` 生成内嵌按钮（免手写嵌套 dict）；`Interaction` 新增 `button_data` 属性（被点按钮的 action.data）；examples/group_bot 补 `/btn` 卡片与 `INTERACTION_CREATE` 回调示例

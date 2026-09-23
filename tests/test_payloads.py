@@ -192,3 +192,59 @@ async def test_untyped_annotation_still_receives_raw_dict():
         {"op": Opcode.DISPATCH, "t": "GROUP_AT_MESSAGE_CREATE", "d": {"content": "x"}}
     )
     assert received == [{"content": "x"}]
+
+
+def test_parse_group_member_and_join_request_events():
+    from qqbotsdk.payloads import (
+        GroupJoinRequest,
+        GroupMemberChange,
+        SubscribeMessageStatus,
+    )
+
+    change = parse_event(
+        "GROUP_MEMBER_ADD",
+        {
+            "timestamp": 1784276757,
+            "group_openid": "G1",
+            "member_openid": "M1",
+            "user_openid": "U1",
+        },
+    )
+    assert isinstance(change, GroupMemberChange)
+    assert change.member_openid == "M1"
+    # 两事件 d 结构一致，共用 dataclass
+    remove = parse_event(
+        "GROUP_MEMBER_REMOVE",
+        {"timestamp": 1, "group_openid": "G1", "member_openid": "M2"},
+    )
+    assert isinstance(remove, GroupMemberChange)
+    assert remove.user_openid is None
+
+    req = parse_event(
+        "GROUP_JOIN_REQUEST",
+        {
+            "group_openid": "G1",
+            "join_request_id": "j1",
+            "member_openid": "M1",
+            "username": "小明",
+            "apply_source": "self_apply",
+            "verify_info": {"method": "verify_message", "verify_message": "来了"},
+            "auto_approved": {"strategy_id": "st1"},
+            "unknown_field": 1,
+        },
+    )
+    assert isinstance(req, GroupJoinRequest)
+    assert req.join_request_id == "j1"
+    assert req.verify_info == {"method": "verify_message", "verify_message": "来了"}
+    assert req.auto_approved == {"strategy_id": "st1"}
+
+    status = parse_event(
+        "SUBSCRIBE_MESSAGE_STATUS",
+        {
+            "openid": "U1",
+            "result": [{"template_id": 10001, "op": 1, "subscribe_id": "sub1"}],
+        },
+    )
+    assert isinstance(status, SubscribeMessageStatus)
+    assert status.group_openid is None
+    assert status.result[0]["subscribe_id"] == "sub1"

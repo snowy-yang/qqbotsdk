@@ -79,6 +79,7 @@ class Intent(IntFlag):
     GUILD_MESSAGES = 1 << 9
     GUILD_MESSAGE_REACTIONS = 1 << 10
     DIRECT_MESSAGE = 1 << 12
+    GROUP_MEMBER_EVENT = 1 << 24
     GROUP_AND_C2C_EVENT = 1 << 25
     INTERACTION = 1 << 26
     MESSAGE_AUDIT = 1 << 27

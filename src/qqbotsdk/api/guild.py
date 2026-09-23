@@ -130,18 +130,242 @@ class GuildApi(BaseApi):
         """获取频道信息（GET /guilds/{guild_id}）。"""
         return await self.get(f"/guilds/{guild_id}")
 
+    async def get_me_guilds(
+        self,
+        before: str | None = None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> list | dict:
+        """获取机器人加入的频道列表（GET /users/@me/guilds）。
+
+        before/after 为分页锚点 guild_id（同时传时 after 无效）；limit
+        默认 100、最大 100。
+        """
+        params: dict[str, Any] = {}
+        if before:
+            params["before"] = before
+        if after:
+            params["after"] = after
+        if limit is not None:
+            params["limit"] = limit
+        return await self.get("/users/@me/guilds", params=params or None)
+
     async def get_guild_channels(self, guild_id: str) -> list | dict:
         """获取频道下的子频道列表（GET /channels/{guild_id}/channels）。"""
         return await self.get(f"/channels/{guild_id}/channels")
+
+    async def create_channel(self, guild_id: str, name: str, **fields: Any) -> dict:
+        """创建子频道（POST /guilds/{guild_id}/channels）。私域接口，需管理员权限。
+
+        fields 透传 type/sub_type/position/parent_id/private_type/
+        private_user_ids/speak_permission/application_id；成功后触发
+        CHANNEL_CREATE 事件。
+        """
+        return await self.post(
+            f"/guilds/{guild_id}/channels", json={"name": name, **fields}
+        )
+
+    async def update_channel(self, channel_id: str, **fields: Any) -> dict:
+        """修改子频道（PATCH /channels/{channel_id}）。私域接口，需管理员权限。
+
+        fields 为要修改的字段（name/position/parent_id/private_type/
+        speak_permission），只需传变更项；成功后触发 CHANNEL_UPDATE 事件。
+        """
+        return await self.patch(f"/channels/{channel_id}", json=fields)
+
+    async def delete_channel(self, channel_id: str) -> dict:
+        """删除子频道（DELETE /channels/{channel_id}）。私域接口，需管理员权限；
+        删除后不可恢复，成功后触发 CHANNEL_DELETE 事件。"""
+        return await self.delete(f"/channels/{channel_id}")
 
     async def get_channel(self, channel_id: str) -> dict:
         """获取子频道信息（GET /channels/{channel_id}）。"""
         return await self.get(f"/channels/{channel_id}")
 
+    async def get_channel_online_nums(self, channel_id: str) -> dict:
+        """获取子频道在线成员数（GET /channels/{channel_id}/online_nums）。"""
+        return await self.get(f"/channels/{channel_id}/online_nums")
+
     async def get_guild_roles(self, guild_id: str) -> dict:
         """获取频道身份组列表（GET /guilds/{guild_id}/roles）。"""
         return await self.get(f"/guilds/{guild_id}/roles")
 
+    async def create_guild_role(
+        self,
+        guild_id: str,
+        name: str = "",
+        color: int | None = None,
+        hoist: int | None = None,
+    ) -> dict:
+        """创建频道身份组（POST /guilds/{guild_id}/roles）。
+
+        color 为 ARGB HEX 十六进制颜色值转十进制；hoist=1 在成员列表
+        中单独展示。返回 {"role_id": ..., "role": {...}}。需要管理员权限。
+        """
+        body: dict[str, Any] = {}
+        if name:
+            body["name"] = name
+        if color is not None:
+            body["color"] = color
+        if hoist is not None:
+            body["hoist"] = hoist
+        return await self.post(f"/guilds/{guild_id}/roles", json=body)
+
+    async def update_guild_role(
+        self,
+        guild_id: str,
+        role_id: str,
+        name: str | None = None,
+        color: int | None = None,
+        hoist: int | None = None,
+    ) -> dict:
+        """修改频道身份组（PATCH /guilds/{guild_id}/roles/{role_id}）。
+
+        只传变更项；默认身份组（role_id=1~5，见官方文档）不可修改。
+        需要管理员权限。
+        """
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if color is not None:
+            body["color"] = color
+        if hoist is not None:
+            body["hoist"] = hoist
+        return await self.patch(f"/guilds/{guild_id}/roles/{role_id}", json=body)
+
+    async def delete_guild_role(self, guild_id: str, role_id: str) -> dict:
+        """删除频道身份组（DELETE /guilds/{guild_id}/roles/{role_id}）。
+
+        只能删除自己创建的身份组；需要管理员权限。
+        """
+        return await self.delete(f"/guilds/{guild_id}/roles/{role_id}")
+
+    async def add_guild_member_role(
+        self, guild_id: str, user_id: str, role_id: str
+    ) -> dict:
+        """给成员授予身份组（PUT /guilds/{guild_id}/members/{user_id}/roles/{role_id}）。
+
+        需要管理员权限（同身份组的成员也可操作）。
+        """
+        return await self.put(
+            f"/guilds/{guild_id}/members/{user_id}/roles/{role_id}"
+        )
+
+    async def remove_guild_member_role(
+        self, guild_id: str, user_id: str, role_id: str
+    ) -> dict:
+        """删除成员的身份组（DELETE .../roles/{role_id}）。需要管理员权限。"""
+        return await self.delete(
+            f"/guilds/{guild_id}/members/{user_id}/roles/{role_id}"
+        )
+
     async def get_guild_member(self, guild_id: str, user_id: str) -> dict:
         """获取成员详情（GET /guilds/{guild_id}/members/{user_id}）。"""
         return await self.get(f"/guilds/{guild_id}/members/{user_id}")
+
+    async def get_guild_members(self, guild_id: str) -> list | dict:
+        """获取频道成员列表（GET /guilds/{guild_id}/members）。
+
+        1 分钟内最多获取 20 次，每次最多 100 人；仅私域机器人可用。
+        """
+        return await self.get(f"/guilds/{guild_id}/members")
+
+    async def remove_guild_member(
+        self,
+        guild_id: str,
+        user_id: str,
+        add_blacklist: bool = False,
+        delete_history_msg_days: int = 0,
+    ) -> dict:
+        """踢出频道成员（DELETE /guilds/{guild_id}/members/{user_id}）。私域接口。
+
+        需要机器人具备踢人权限（管理员）；无法移除管理员。add_blacklist
+        同时拉黑；delete_history_msg_days 撤回其消息，仅支持 3/7/15/30
+        或 -1（全部），默认 0 不撤回。
+        """
+        body: dict[str, Any] = {}
+        if add_blacklist:
+            body["add_blacklist"] = True
+        if delete_history_msg_days:
+            body["delete_history_msg_days"] = delete_history_msg_days
+        return await self.delete(
+            f"/guilds/{guild_id}/members/{user_id}", json=body or None
+        )
+
+    async def get_role_members(self, guild_id: str, role_id: str) -> list | dict:
+        """获取身份组成员列表（GET /guilds/{guild_id}/roles/{role_id}/members）。
+
+        1 分钟内最多获取 20 次，每次最多 100 人；仅私域机器人可用。
+        """
+        return await self.get(f"/guilds/{guild_id}/roles/{role_id}/members")
+
+    # ---------- 禁言与消息设置 ----------
+
+    async def mute_guild(
+        self,
+        guild_id: str,
+        mute_end_timestamp: str | None = None,
+        mute_seconds: str | None = None,
+    ) -> dict:
+        """频道全员禁言（PATCH /guilds/{guild_id}/mute）。
+
+        mute_end_timestamp（秒级绝对时间戳）与 mute_seconds（字符串秒数）
+        二选一，同时传以前者为准；解除全员禁言两个传 "0"。需要管理员权限。
+        """
+        body: dict[str, Any] = {}
+        if mute_end_timestamp is not None:
+            body["mute_end_timestamp"] = mute_end_timestamp
+        if mute_seconds is not None:
+            body["mute_seconds"] = mute_seconds
+        return await self.patch(f"/guilds/{guild_id}/mute", json=body)
+
+    async def mute_guild_members(
+        self,
+        guild_id: str,
+        user_ids: list[str],
+        mute_end_timestamp: str | None = None,
+        mute_seconds: str | None = None,
+    ) -> dict:
+        """频道批量成员禁言（PATCH /guilds/{guild_id}/mute，带 user_ids）。
+
+        一次最多禁言 20 人；时间字段规则同 mute_guild，解除时传 "0"。
+        """
+        body: dict[str, Any] = {"user_ids": user_ids}
+        if mute_end_timestamp is not None:
+            body["mute_end_timestamp"] = mute_end_timestamp
+        if mute_seconds is not None:
+            body["mute_seconds"] = mute_seconds
+        return await self.patch(f"/guilds/{guild_id}/mute", json=body)
+
+    async def get_guild_message_setting(self, guild_id: str) -> dict:
+        """获取频道消息频率设置详情（GET /guilds/{guild_id}/message/setting）。"""
+        return await self.get(f"/guilds/{guild_id}/message/setting")
+
+    # ---------- 接口权限 ----------
+
+    async def get_guild_api_permissions(self, guild_id: str) -> dict:
+        """获取机器人在频道内的可用接口权限列表（GET .../api_permission）。"""
+        return await self.get(f"/guilds/{guild_id}/api_permission")
+
+    async def create_api_permission_demand(
+        self,
+        guild_id: str,
+        channel_id: str,
+        path: str,
+        method: str,
+        desc: str,
+    ) -> dict:
+        """申请频道接口权限（POST /guilds/{guild_id}/api_permission/demand）。
+
+        生成权限授权链接发到子频道 channel_id，由频道管理员点击授权；
+        path/method 为要申请的接口（如 "/channels/{channel_id}/messages"，
+        method 为 GET/POST…），desc 说明申请后机器人能实现的功能。
+        """
+        return await self.post(
+            f"/guilds/{guild_id}/api_permission/demand",
+            json={
+                "channel_id": channel_id,
+                "api_identify": {"path": path, "method": method},
+                "desc": desc,
+            },
+        )

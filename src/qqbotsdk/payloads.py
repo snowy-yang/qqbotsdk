@@ -127,6 +127,56 @@ class GroupMsgReceive:
 
 
 @dataclass(slots=True)
+class GroupMemberChange:
+    """群成员加入/退出（GROUP_MEMBER_ADD / GROUP_MEMBER_REMOVE，d 结构一致）。
+
+    user_openid 为跨应用统一标识，可能为空。
+    """
+
+    timestamp: int | None = None
+    group_openid: str | None = None
+    member_openid: str | None = None
+    user_openid: str | None = None
+
+
+@dataclass(slots=True)
+class GroupJoinRequest:
+    """用户申请加群（GROUP_JOIN_REQUEST）：仅机器人是群管理员时收到。
+
+    verify_info 为入群验证方式（{"method": "verify_message"/
+    "admin_review_qa", "verify_message": ..., "review_qa_list": [...]}）；
+    auto_approved 非空（含 strategy_id）表示申请已被自动审批策略通过。
+    join_request_id 需在审批接口（review_group_join_request）回传。
+    """
+
+    group_openid: str | None = None
+    join_request_id: str | None = None
+    member_openid: str | None = None
+    username: str | None = None
+    risk_tips: str | None = None
+    union_openid: str | None = None
+    apply_at: str | None = None
+    apply_source: str | None = None
+    invited_by: str | None = None
+    bot: bool | None = None
+    verify_info: dict | None = None
+    auto_approved: dict | None = None
+
+
+@dataclass(slots=True)
+class SubscribeMessageStatus:
+    """订阅消息授权状态变更（SUBSCRIBE_MESSAGE_STATUS）。
+
+    result 为各模板授权结果列表：op 1=允许订阅 2=拒绝订阅，
+    subscribe_id 发送订阅消息时需使用；group_openid/openid 按场景二选一。
+    """
+
+    group_openid: str | None = None
+    openid: str | None = None
+    result: list[dict] | None = None
+
+
+@dataclass(slots=True)
 class AtMessage:
     """频道 @机器人消息（AT_MESSAGE_CREATE / PUBLIC 与私域共用结构）。"""
 
@@ -298,6 +348,10 @@ EVENT_TYPES: dict[str, type] = {
     "C2C_MSG_RECEIVE": C2CMsgReceive,
     "GROUP_MSG_REJECT": GroupMsgReject,
     "GROUP_MSG_RECEIVE": GroupMsgReceive,
+    "GROUP_MEMBER_ADD": GroupMemberChange,
+    "GROUP_MEMBER_REMOVE": GroupMemberChange,
+    "GROUP_JOIN_REQUEST": GroupJoinRequest,
+    "SUBSCRIBE_MESSAGE_STATUS": SubscribeMessageStatus,
     "AT_MESSAGE_CREATE": AtMessage,
     "DIRECT_MESSAGE_CREATE": DirectMessage,
     "GUILD_CREATE": Guild,

@@ -172,6 +172,294 @@ async def test_respond_interaction():
     assert kwargs["json"] == {"code": 0}
 
 
+async def test_panel_create_list_detail():
+    api, cap = make_api()
+    panel = {"items": [{"type": "command", "name": "群签到", "desc": "每日签到"}]}
+    await api.create_panel(
+        "group", panel, target_type="specific", group_openids=["G1", "G2"]
+    )
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/panels")
+    assert kwargs["json"] == {
+        "scope": "group",
+        "panel": panel,
+        "target_type": "specific",
+        "group_openids": ["G1", "G2"],
+    }
+
+    await api.get_panels("c2c", cursor="c1", limit=10)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("GET", "/v2/panels")
+    assert kwargs["params"] == {"scope": "c2c", "cursor": "c1", "limit": 10}
+
+    await api.get_panel("P1")
+    assert cap["call"][:2] == ("GET", "/v2/panels/P1")
+
+
+async def test_panel_update_delete_targets():
+    api, cap = make_api()
+    panel = {"items": [{"type": "command", "name": "新指令", "desc": "更新"}]}
+    await api.update_panel("P1", panel)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PUT", "/v2/panels/P1")
+    assert kwargs["json"] == {"panel": panel}
+
+    await api.delete_panel("P1")
+    assert cap["call"][:2] == ("DELETE", "/v2/panels/P1")
+
+    await api.update_panel_targets("P1", "add", group_openids=["G3"])
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PUT", "/v2/panels/P1/target")
+    assert kwargs["json"] == {"op": "add", "group_openids": ["G3"]}
+
+    await api.update_panel_targets("P1", "del", user_openids=["U1"])
+    assert cap["call"][2]["json"] == {"op": "del", "user_openids": ["U1"]}
+
+
+async def test_menu_get_and_update():
+    api, cap = make_api()
+    await api.get_menu()
+    assert cap["call"][:2] == ("GET", "/v2/menu")
+
+    menu = {
+        "items": [
+            {"type": "send_message", "name": "帮助", "send_message": "/help"},
+            {"type": "link", "name": "官网", "link": "https://example.com"},
+        ]
+    }
+    await api.update_menu(menu)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PUT", "/v2/menu")
+    assert kwargs["json"] == {"menu": menu}
+
+
+# ---------- v2 补充：流式消息 / 分片上传 / 分享链接 ----------
+
+
+async def test_stream_message_first_and_next_chunk():
+    api, cap = make_api()
+    await api.post_c2c_stream_message("U1", "回答中", msg_id="m1", msg_seq=1)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/users/U1/stream_messages")
+    assert kwargs["json"] == {
+        "index": 0,
+        "input_state": 1,
+        "content_type": "markdown",
+        "content_raw": "回答中",
+        "msg_id": "m1",
+        "msg_seq": 1,
+    }
+
+    await api.post_c2c_stream_message(
+        "U1",
+        "回答中，更多内容",
+        stream_msg_id="s1",
+        index=1,
+        input_state=10,
+        input_mode="replace",
+        event_id="e1",
+    )
+    body = cap["call"][2]["json"]
+    assert body["stream_msg_id"] == "s1"
+    assert body["index"] == 1
+    assert body["input_state"] == 10
+    assert body["input_mode"] == "replace"
+    assert body["event_id"] == "e1"
+    assert "msg_id" not in body
+
+
+async def test_chunked_upload_group_and_c2c():
+    api, cap = make_api()
+    common = {
+        "file_type": 2,
+        "file_size": 31457280,
+        "file_name": "demo.mp4",
+        "md5": "m",
+        "sha1": "s",
+        "md5_10m": "m10",
+    }
+    await api.prepare_group_upload("G1", **common)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/groups/G1/upload_prepare")
+    assert kwargs["json"] == {
+        "file_type": 2,
+        "file_size": "31457280",  # 官方为字符串类型
+        "file_name": "demo.mp4",
+        "md5": "m",
+        "sha1": "s",
+        "md5_10m": "m10",
+    }
+
+    await api.finish_group_upload_part("G1", "up1", part_index=0)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/groups/G1/upload_part_finish")
+    assert kwargs["json"] == {"upload_id": "up1", "part_index": 0}
+
+    await api.prepare_c2c_upload("U1", **common)
+    assert cap["call"][:2] == ("POST", "/v2/users/U1/upload_prepare")
+
+    await api.finish_c2c_upload_part("U1", "up1", part_index=1, block_size=4096, md5="p1")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/users/U1/upload_part_finish")
+    assert kwargs["json"] == {
+        "upload_id": "up1",
+        "part_index": 1,
+        "block_size": "4096",
+        "md5": "p1",
+    }
+
+
+async def test_generate_url_link():
+    api, cap = make_api()
+    await api.generate_url_link()
+    assert cap["call"][2]["json"] == {}
+
+    await api.generate_url_link("track_01")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/generate_url_link")
+    assert kwargs["json"] == {"callback_data": "track_01"}
+
+
+# ---------- 频道补充：子频道增删改 / 机器人频道列表 ----------
+
+
+async def test_channel_manage_and_me_guilds():
+    api, cap = make_api()
+    await api.create_channel("GID", "公告区", type=0, sub_type=1, position=3)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/guilds/GID/channels")
+    assert kwargs["json"] == {"name": "公告区", "type": 0, "sub_type": 1, "position": 3}
+
+    await api.update_channel("C1", name="新名字", position=5)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PATCH", "/channels/C1")
+    assert kwargs["json"] == {"name": "新名字", "position": 5}
+
+    await api.delete_channel("C1")
+    assert cap["call"][:2] == ("DELETE", "/channels/C1")
+
+    await api.get_me_guilds(after="G9", limit=20)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("GET", "/users/@me/guilds")
+    assert kwargs["params"] == {"after": "G9", "limit": 20}
+
+    await api.get_me_guilds()
+    assert cap["call"][2].get("params") is None
+
+
+# ---------- 群管理 ----------
+
+
+async def test_group_info_members_state():
+    api, cap = make_api()
+    await api.get_group_info("G1")
+    assert cap["call"][:2] == ("GET", "/v2/groups/G1/info")
+
+    await api.get_group_members("G1", cursor="c1")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("GET", "/v2/groups/G1/members")
+    assert kwargs["params"] == {"cursor": "c1"}
+
+    await api.get_group_member("G1", "M1")
+    assert cap["call"][:2] == ("GET", "/v2/groups/G1/members/M1")
+
+    await api.get_group_bot_state("G1")
+    assert cap["call"][:2] == ("GET", "/v2/groups/G1/bot_state")
+
+    await api.get_group_mute_state("G1")
+    assert cap["call"][:2] == ("GET", "/v2/groups/G1/restrict_chat_setting")
+
+
+async def test_group_join_request_flow():
+    api, cap = make_api()
+    await api.get_group_join_requests("G1", limit=10)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("GET", "/v2/groups/G1/join_request_list")
+    assert kwargs["params"] == {"limit": 10}
+
+    await api.review_group_join_request(
+        "G1", "M1", "approve", join_request_id="j1"
+    )
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/groups/G1/approval_join_request/M1")
+    assert kwargs["json"] == {"op": "approve", "join_request_id": "j1"}
+
+    await api.review_group_join_request(
+        "G1", "M1", "decline", join_request_id="j1",
+        reject_reason="广告", add_to_member_blacklist=True,
+    )
+    body = cap["call"][2]["json"]
+    assert body == {
+        "op": "decline",
+        "join_request_id": "j1",
+        "reject_reason": "广告",
+        "add_to_member_blacklist": True,
+    }
+
+
+async def test_group_blacklist_and_remove():
+    api, cap = make_api()
+    await api.get_group_blacklist("G1", cursor="c1", limit=50)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("GET", "/v2/groups/G1/member_blacklist")
+    assert kwargs["params"] == {"cursor": "c1", "limit": 50}
+
+    await api.update_group_blacklist("G1", "add", ["M1", "M2"])
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/groups/G1/member_blacklist")
+    assert kwargs["json"] == {"op": "add", "member_openids": ["M1", "M2"]}
+
+    await api.remove_group_members("G1", ["M1"], add_to_member_blacklist=True)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/groups/G1/batch_remove_members")
+    assert kwargs["json"] == {
+        "member_openids": ["M1"],
+        "add_to_member_blacklist": True,
+    }
+
+
+async def test_join_approval_strategies():
+    api, cap = make_api()
+    await api.get_join_approval_strategies(cursor="c1", limit=20)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("GET", "/v2/groups/join_approval_strategy")
+    assert kwargs["params"] == {"cursor": "c1", "limit": 20}
+
+    await api.create_join_approval_strategy(
+        group_openids=["G1"], expire_at="2027-08-05T15:30:16+08:00"
+    )
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/groups/join_approval_strategy")
+    assert kwargs["json"] == {
+        "group_openids": ["G1"],
+        "expire_at": "2027-08-05T15:30:16+08:00",
+    }
+
+    await api.update_join_approval_strategy(
+        "st1", is_enable="off", group_action={"op": "add", "group_openids": ["G2"]}
+    )
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PATCH", "/v2/groups/join_approval_strategy/st1")
+    assert kwargs["json"] == {
+        "is_enable": "off",
+        "group_action": {"op": "add", "group_openids": ["G2"]},
+    }
+
+    await api.delete_join_approval_strategy("st1")
+    assert cap["call"][:2] == ("DELETE", "/v2/groups/join_approval_strategy/st1")
+
+    await api.execute_join_approval_strategy("st1")
+    assert cap["call"][:2] == ("POST", "/v2/groups/join_approval_strategy/st1/execute")
+
+    await api.update_join_approval_strategy_whitelist("st1", "add", ["1234567"])
+    method, path, kwargs = cap["call"]
+    assert (method, path) == (
+        "POST",
+        "/v2/groups/join_approval_strategy/st1/whitelist_users",
+    )
+    assert kwargs["json"] == {"op": "add", "whitelist_users": ["1234567"]}
+
+
 def test_button_defaults_and_overrides():
     btn = button("点我", data="d1")
     assert btn["render_data"] == {"label": "点我", "style": 1}
@@ -369,3 +657,137 @@ async def test_request_401_invalidates_token_and_retries_once():
     assert token.invalidated == 1
     assert token.fetches == 2
     assert len(http.calls) == 2
+
+
+# ---------- 旧版（频道侧）接口补齐 ----------
+
+
+async def test_guild_roles_crud_and_member_role():
+    api, cap = make_api()
+    await api.create_guild_role("GID", "码农", color=0xFF0000, hoist=1)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/guilds/GID/roles")
+    assert kwargs["json"] == {"name": "码农", "color": 16711680, "hoist": 1}
+
+    await api.update_guild_role("GID", "R1", name="新名")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PATCH", "/guilds/GID/roles/R1")
+    assert kwargs["json"] == {"name": "新名"}
+
+    await api.delete_guild_role("GID", "R1")
+    assert cap["call"][:2] == ("DELETE", "/guilds/GID/roles/R1")
+
+    await api.add_guild_member_role("GID", "U1", "R1")
+    assert cap["call"][:2] == ("PUT", "/guilds/GID/members/U1/roles/R1")
+
+    await api.remove_guild_member_role("GID", "U1", "R1")
+    assert cap["call"][:2] == ("DELETE", "/guilds/GID/members/U1/roles/R1")
+
+
+async def test_guild_members_mutes_and_api_permission():
+    api, cap = make_api()
+    await api.get_guild_members("GID")
+    assert cap["call"][:2] == ("GET", "/guilds/GID/members")
+
+    await api.remove_guild_member("GID", "U1", add_blacklist=True, delete_history_msg_days=7)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("DELETE", "/guilds/GID/members/U1")
+    assert kwargs["json"] == {"add_blacklist": True, "delete_history_msg_days": 7}
+
+    await api.get_role_members("GID", "R1")
+    assert cap["call"][:2] == ("GET", "/guilds/GID/roles/R1/members")
+
+    await api.get_channel_online_nums("C1")
+    assert cap["call"][:2] == ("GET", "/channels/C1/online_nums")
+
+    await api.mute_guild("GID", mute_seconds="60")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PATCH", "/guilds/GID/mute")
+    assert kwargs["json"] == {"mute_seconds": "60"}
+
+    await api.mute_guild_members("GID", ["U1", "U2"], mute_end_timestamp="1700000000")
+    assert cap["call"][2]["json"] == {
+        "user_ids": ["U1", "U2"],
+        "mute_end_timestamp": "1700000000",
+    }
+
+    await api.get_guild_message_setting("GID")
+    assert cap["call"][:2] == ("GET", "/guilds/GID/message/setting")
+
+    await api.get_guild_api_permissions("GID")
+    assert cap["call"][:2] == ("GET", "/guilds/GID/api_permission")
+
+    await api.create_api_permission_demand("GID", "C1", "/channels/x/messages", "POST", "d")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/guilds/GID/api_permission/demand")
+    assert kwargs["json"] == {
+        "channel_id": "C1",
+        "api_identify": {"path": "/channels/x/messages", "method": "POST"},
+        "desc": "d",
+    }
+
+
+async def test_channel_permissions_and_dms():
+    api, cap = make_api()
+    await api.get_channel_permissions("C1", "U1")
+    assert cap["call"][:2] == ("GET", "/channels/C1/members/U1/permissions")
+
+    await api.get_channel_role_permissions("C1", "R1")
+    assert cap["call"][:2] == ("GET", "/channels/C1/roles/R1/permissions")
+
+    await api.update_channel_permissions("C1", "U1", add="1", remove="4")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PUT", "/channels/C1/members/U1/permissions")
+    assert kwargs["json"] == {"add": "1", "remove": "4"}
+
+    await api.update_channel_role_permissions("C1", "R1", add="2")
+    assert cap["call"][2]["json"] == {"add": "2"}
+
+    await api.create_dms("U1", "GID")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/users/@me/dms")
+    assert kwargs["json"] == {"recipient_id": "U1", "source_guild_id": "GID"}
+
+    await api.post_dms_message("DG", content="hi", msg_id="m1", msg_seq=2)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/dms/DG/messages")
+    assert kwargs["json"] == {"msg_seq": 2, "content": "hi", "msg_id": "m1"}
+
+    await api.withdraw_dms_message("DG", "m1", hide_tip=True)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("DELETE", "/dms/DG/messages/m1")
+    assert kwargs["params"] == {"hidetip": "true"}
+
+
+async def test_audio_and_forum():
+    api, cap = make_api()
+    await api.control_channel_audio("C1", audio_url="http://x/a.mp3", text="歌名")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/channels/C1/audio")
+    assert kwargs["json"] == {
+        "status": 0,
+        "audio_url": "http://x/a.mp3",
+        "text": "歌名",
+    }
+
+    await api.control_channel_audio("C1", status=3)
+    assert cap["call"][2]["json"] == {"status": 3}
+
+    await api.put_channel_mic("C1")
+    assert cap["call"][:2] == ("PUT", "/channels/C1/mic")
+    await api.delete_channel_mic("C1")
+    assert cap["call"][:2] == ("DELETE", "/channels/C1/mic")
+
+    await api.get_channel_threads("C1")
+    assert cap["call"][:2] == ("GET", "/channels/C1/threads")
+
+    await api.get_channel_thread("C1", "T1")
+    assert cap["call"][:2] == ("GET", "/channels/C1/threads/T1")
+
+    await api.put_channel_thread("C1", "标题", "内容", format=3)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("PUT", "/channels/C1/threads")
+    assert kwargs["json"] == {"title": "标题", "content": "内容", "format": 3}
+
+    await api.delete_channel_thread("C1", "T1")
+    assert cap["call"][:2] == ("DELETE", "/channels/C1/threads/T1")

@@ -1,5 +1,5 @@
-"""v2 群聊/单聊方法集（openid 接入面）：消息、富媒体上传、撤回、禁言，
-以及内嵌按钮/键盘的快捷构造。
+"""v2 群聊/单聊方法集（openid 接入面）：消息、流式消息、富媒体上传与
+大文件分片上传、撤回、禁言、分享链接，以及内嵌按钮/键盘的快捷构造。
 
 被动回复规则（官方文档 2026-09 核对）：携带 msg_id（或 event_id，
 二选一）为被动回复——单聊 60 分钟内最多 4 次，群聊 5 分钟内最多 5 次；
@@ -21,6 +21,13 @@ FILE_TYPE_IMAGE = 1
 FILE_TYPE_VIDEO = 2
 FILE_TYPE_VOICE = 3
 FILE_TYPE_FILE = 4
+# 流式消息取值
+STREAM_INPUT_APPEND = "append"  # 分片内容追加到待下发正文
+STREAM_INPUT_REPLACE = "replace"  # 分片内容为全量正文（须以上游已下发前缀开头）
+STREAM_GENERATING = 1  # input_state：生成中
+STREAM_FINISHED = 10  # input_state：生成结束
+STREAM_CONTENT_TEXT = "text"
+STREAM_CONTENT_MARKDOWN = "markdown"
 
 
 def button(
@@ -105,6 +112,93 @@ class V2Api(BaseApi):
             f"/v2/users/{openid}", file_type, url, srv_send_msg
         )
 
+    async def prepare_c2c_upload(
+        self,
+        openid: str,
+        file_type: int,
+        file_size: int | str,
+        file_name: str,
+        md5: str,
+        sha1: str,
+        md5_10m: str,
+        **extra: Any,
+    ) -> dict:
+        """单聊大文件分片预上传（POST /v2/users/{openid}/upload_prepare）。
+
+        用法同 prepare_group_upload；全部分片完成后携带 upload_id 调
+        upload_c2c_file 完成合并。
+        """
+        return await self._prepare_upload(
+            f"/v2/users/{openid}",
+            file_type,
+            file_size,
+            file_name,
+            md5,
+            sha1,
+            md5_10m,
+            **extra,
+        )
+
+    async def finish_c2c_upload_part(
+        self,
+        openid: str,
+        upload_id: str,
+        part_index: int,
+        block_size: int | str | None = None,
+        md5: str | None = None,
+    ) -> dict:
+        """单聊分片上传完成确认（POST .../upload_part_finish）。"""
+        return await self._finish_upload_part(
+            f"/v2/users/{openid}", upload_id, part_index, block_size, md5
+        )
+
+    async def post_c2c_stream_message(
+        self,
+        openid: str,
+        content_raw: str = "",
+        *,
+        stream_msg_id: str | None = None,
+        index: int = 0,
+        input_state: int = STREAM_GENERATING,
+        input_mode: str | None = None,
+        content_type: str = STREAM_CONTENT_MARKDOWN,
+        msg_id: str | None = None,
+        event_id: str | None = None,
+        msg_seq: int | None = None,
+        is_wakeup: bool | None = None,
+        **extra: Any,
+    ) -> dict:
+        """流式分批发送单聊消息（POST /v2/users/{openid}/stream_messages）。
+
+        每个分片使用相同 stream_msg_id、index 从 0 递增：首片不传
+        stream_msg_id，响应的 id 即后续分片要携带的 stream_msg_id；
+        以 input_state=STREAM_FINISHED 收尾。input_mode 默认 append
+        （分片拼接），replace 时 content_raw 须以上游已下发前缀开头。
+        content_type 默认 markdown；msg_id/event_id 二选一为被动回复；
+        is_wakeup=True 为召回消息，不校验 msg_id/event_id 有效期。
+        """
+        body: dict[str, Any] = {
+            "index": index,
+            "input_state": input_state,
+            "content_type": content_type,
+        }
+        if content_raw:
+            body["content_raw"] = content_raw
+        if stream_msg_id:
+            body["stream_msg_id"] = stream_msg_id
+        if input_mode:
+            body["input_mode"] = input_mode
+        if msg_id:
+            body["msg_id"] = msg_id
+        elif event_id:
+            body["event_id"] = event_id
+        if msg_seq is not None:
+            body["msg_seq"] = msg_seq
+        if is_wakeup is not None:
+            body["is_wakeup"] = is_wakeup
+        body.update(extra)
+        return await self.post(f"/v2/users/{openid}/stream_messages", json=body)
+
     async def post_group_message(
         self,
         group_openid: str,
@@ -144,6 +238,52 @@ class V2Api(BaseApi):
             f"/v2/groups/{group_openid}", file_type, url, srv_send_msg
         )
 
+    async def prepare_group_upload(
+        self,
+        group_openid: str,
+        file_type: int,
+        file_size: int | str,
+        file_name: str,
+        md5: str,
+        sha1: str,
+        md5_10m: str,
+        **extra: Any,
+    ) -> dict:
+        """群聊大文件分片预上传（POST /v2/groups/{group_openid}/upload_prepare）。
+
+        返回 upload_id、分块大小 block_size 与各分片预签名 URL（parts）；
+        将文件按 block_size 分片逐片 PUT 到预签名 URL，每片成功后调
+        finish_group_upload_part。md5/sha1 为整文件校验值，md5_10m 为
+        文件前 10002432 字节（约 10MB）的 MD5。全部分片完成后携带
+        upload_id 调 upload_group_file 完成合并。
+        """
+        return await self._prepare_upload(
+            f"/v2/groups/{group_openid}",
+            file_type,
+            file_size,
+            file_name,
+            md5,
+            sha1,
+            md5_10m,
+            **extra,
+        )
+
+    async def finish_group_upload_part(
+        self,
+        group_openid: str,
+        upload_id: str,
+        part_index: int,
+        block_size: int | str | None = None,
+        md5: str | None = None,
+    ) -> dict:
+        """群聊分片上传完成确认（POST .../upload_part_finish）。
+
+        每个分片 PUT 到预签名 URL 成功后调用，通知服务端该分片已传完。
+        """
+        return await self._finish_upload_part(
+            f"/v2/groups/{group_openid}", upload_id, part_index, block_size, md5
+        )
+
     async def _upload_v2_file(
         self, base: str, file_type: int, url: str, srv_send_msg: bool
     ) -> dict:
@@ -151,6 +291,44 @@ class V2Api(BaseApi):
             f"{base}/files",
             json={"file_type": file_type, "url": url, "srv_send_msg": srv_send_msg},
         )
+
+    async def _prepare_upload(
+        self,
+        base: str,
+        file_type: int,
+        file_size: int | str,
+        file_name: str,
+        md5: str,
+        sha1: str,
+        md5_10m: str,
+        **extra: Any,
+    ) -> dict:
+        # file_size 官方为字符串类型（字节）
+        body: dict[str, Any] = {
+            "file_type": file_type,
+            "file_size": str(file_size),
+            "file_name": file_name,
+            "md5": md5,
+            "sha1": sha1,
+            "md5_10m": md5_10m,
+        }
+        body.update(extra)
+        return await self.post(f"{base}/upload_prepare", json=body)
+
+    async def _finish_upload_part(
+        self,
+        base: str,
+        upload_id: str,
+        part_index: int,
+        block_size: int | str | None,
+        md5: str | None,
+    ) -> dict:
+        body: dict[str, Any] = {"upload_id": upload_id, "part_index": part_index}
+        if block_size is not None:
+            body["block_size"] = str(block_size)
+        if md5 is not None:
+            body["md5"] = md5
+        return await self.post(f"{base}/upload_part_finish", json=body)
 
     async def _post_message(
         self,
@@ -216,3 +394,14 @@ class V2Api(BaseApi):
             f"/v2/groups/{group_openid}/restrict_chat_setting",
             json={"mute_expire_at": mute_expire_at},
         )
+
+    async def generate_url_link(self, callback_data: str | None = None) -> dict:
+        """生成机器人分享链接（POST /v2/generate_url_link），返回 {"data": {"url": ...}}。
+
+        用于邀请用户添加机器人为好友；callback_data（≤32 字符）在用户
+        通过链接添加时透传给开发者。
+        """
+        body: dict[str, Any] = {}
+        if callback_data:
+            body["callback_data"] = callback_data
+        return await self.post("/v2/generate_url_link", json=body)
