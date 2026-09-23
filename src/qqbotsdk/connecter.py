@@ -45,6 +45,40 @@ class RateLimitError(RuntimeError):
     """gateway 接口触发频率限制（code=100017）。"""
 
 
+class _Heartbeat:
+    """接收循环与心跳任务之间的联动状态（ws 传输层专属）。
+
+    HELLO 给出心跳间隔：提取后经 Future 唤醒心跳任务，同时驱动接收循环的
+    静默看门狗；HEARTBEAT_ACK 刷新活性，超期即"有事件流但心跳已死"。
+    """
+
+    def __init__(self, interval_fut: asyncio.Future[float], ack_factor: float) -> None:
+        self._interval_fut = interval_fut
+        self._ack_factor = ack_factor
+        self._interval = 0.0
+        self._last_ack = monotonic()
+
+    @property
+    def interval(self) -> float:
+        return self._interval
+
+    def observe(self, data: Payload) -> None:
+        """从一帧提取心跳信息：HELLO 的间隔、HEARTBEAT_ACK 的活性。"""
+        op = data.get("op")
+        if op == Opcode.HELLO:
+            d = data.get("d")
+            if isinstance(d, dict):
+                self._interval = d.get("heartbeat_interval", 41_250) / 1000
+                if not self._interval_fut.done():
+                    self._interval_fut.set_result(self._interval)
+        elif op == Opcode.HEARTBEAT_ACK:
+            self._last_ack = monotonic()
+
+    def ack_expired(self) -> bool:
+        """距最近一次 ACK 是否已超过期限（× 心跳间隔）。"""
+        return monotonic() - self._last_ack > self._interval * self._ack_factor
+
+
 class WebsocketConnecter(Connecter):
     # 看门狗阈值（× 心跳间隔）：贴着 ACK 的自然节奏（1×）跑，误杀由 RESUME 兜底不丢消息；
     # 不能压到 1× 整——ACK 的自然间隔就是 1×，正常抖动会贴边误杀；TCP 下丢包表现为延迟而非静默
@@ -150,8 +184,7 @@ class WebsocketConnecter(Connecter):
     async def receive_helper(
         self, ws: aiohttp.ClientWebSocketResponse, interval_fut: asyncio.Future[float]
     ) -> None:
-        interval: float = 0
-        last_ack = monotonic()
+        heartbeat = _Heartbeat(interval_fut, self._ACK_FACTOR)
         # 服务端约 1 小时后会主动断开，临到期前主动重连：return 即让 _connect 正常
         # 收尾，run() 见存活超过稳定阈值便立刻重连，经 RESUME 补发这段时间的消息
         deadline = monotonic() + self._SERVER_LIFETIME - self._RECONNECT_MARGIN
@@ -160,43 +193,52 @@ class WebsocketConnecter(Connecter):
             if remaining <= 0:
                 logger.info("连接到达服务端寿命上限，主动重连")
                 return
-            # 两个截止取先到者：静默阈值盯"连接静默"，寿命余量保证临到期准时醒来
-            silence = interval * self._SILENCE_FACTOR
-            watchdog = bool(silence) and silence < remaining
-            try:
-                msg = await ws.receive(timeout=silence if watchdog else remaining)
-            except TimeoutError:
-                if watchdog:
-                    raise  # 静默过久 → 交给 run() 走看门狗重连
+            msg = await self._wait_frame(ws, heartbeat.interval, remaining)
+            if msg is None:
                 continue  # 寿命余量到点 → 回顶部主动收尾
             if msg.type != WSMsgType.TEXT:
                 logger.warning(f"WebSocket 收到非文本帧，连接终止: {msg.type}")
                 break
-            data: Payload = msg.json(loads=ujson.loads)
-            op = data.get("op")
-            if op == Opcode.HELLO:
-                d = data.get("d")
-                if isinstance(d, dict):
-                    interval = d.get("heartbeat_interval", 41_250) / 1000
-                    if not interval_fut.done():
-                        interval_fut.set_result(interval)
-            elif op == Opcode.HEARTBEAT_ACK:
-                last_ack = monotonic()
-
-            # 每帧都交给本适配器的协议处理器（HELLO→IDENTIFY/RESUME、
-            # READY→捕获会话、INVALID_SESSION→清会话、s→序列号）；只有业务
-            # 事件（op=0）入队分发。协议帧不入队，所以 INVALID_SESSION 的
-            # 会话重置在下面 break 之前已同步完成，重连不会误 RESUME 死会话。
-            response = await self._protocol.on_frame(data)
-            if response is not None:
-                await self._outbound.put(cast(Payload, response))
-            if op == Opcode.DISPATCH:
-                await self._queue.put_event(data)
-
-            if op in (Opcode.RECONNECT, Opcode.INVALID_SESSION):
+            if await self._process_frame(msg.json(loads=ujson.loads), heartbeat):
                 break
-            if monotonic() - last_ack > interval * self._ACK_FACTOR:
-                raise TimeoutError
+            if heartbeat.ack_expired():
+                raise TimeoutError  # ACK 超期 → 交给 run() 走看门狗重连
+
+    async def _wait_frame(
+        self,
+        ws: aiohttp.ClientWebSocketResponse,
+        interval: float,
+        remaining: float,
+    ) -> aiohttp.WSMessage | None:
+        """等待下一帧：静默阈值与寿命余量两个截止取先到者。
+
+        超时落在静默阈值上说明连接彻底静默，抛 TimeoutError 交 run() 走看门狗
+        重连；落在寿命余量上返回 None，由调用方回循环顶部主动收尾重连。
+        """
+        silence = interval * self._SILENCE_FACTOR
+        watchdog = bool(silence) and silence < remaining
+        try:
+            return await ws.receive(timeout=silence if watchdog else remaining)
+        except TimeoutError:
+            if watchdog:
+                raise
+            return None
+
+    async def _process_frame(self, data: Payload, heartbeat: _Heartbeat) -> bool:
+        """处理一条帧，返回连接是否应当终止。"""
+        heartbeat.observe(data)
+
+        # 每帧都交给本适配器的协议处理器（HELLO→IDENTIFY/RESUME、
+        # READY→捕获会话、INVALID_SESSION→清会话、s→序列号）；只有业务
+        # 事件（op=0）入队分发。协议帧不入队，所以 INVALID_SESSION 的
+        # 会话重置在本方法返回前已同步完成，重连不会误 RESUME 死会话。
+        response = await self._protocol.on_frame(data)
+        if response is not None:
+            await self._outbound.put(cast(Payload, response))
+        op = data.get("op")
+        if op == Opcode.DISPATCH:
+            await self._queue.put_event(data)
+        return op in (Opcode.RECONNECT, Opcode.INVALID_SESSION)
 
     async def heartbeat_helper(self, interval_fut: asyncio.Future[float]) -> None:
         """HELLO 给出间隔后周期投递心跳；断线随任务取消，不堆积过期心跳。"""
