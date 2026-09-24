@@ -1,0 +1,30 @@
+name: 代码检测
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: ruff + pyright
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 uv 与 Python 3.13
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: 同步依赖（含 dev 组）
+        run: uv sync
+
+      - name: ruff 静态检查
+        run: uv run ruff check src tests examples
+
+      - name: pyright 类型检查
+        run: uv run pyright

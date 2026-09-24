@@ -10,6 +10,10 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 
+# 文档部署产物（scripts/deploy_docs.sh 组装）
+dist/
+.wrangler/
+
 # 编辑器/IDE
 .vscode/
 .zcode/
