@@ -2,6 +2,8 @@
 
 QQ 官方机器人 Python SDK（Python 3.13 / asyncio / aiohttp），支持 WebSocket 与 Webhook 两种接入方式。
 
+**📖 在线文档：<https://qqbotsdk.4i.hk/>**
+
 [使用指南](docs/GUIDE.md) · [API 参考](docs/API.md) · [架构](docs/ARCHITECTURE.md) · [示例](examples/) · [更新日志](CHANGELOG.md)
 
 ## 架构
@@ -37,16 +39,15 @@ flowchart TB
     WS --> QQ
 ```
 
-组件在 `run_loop` 显式装配，并按类型登记到 `emitter.services` 供 handler 参数注入（无全局单例）；协议帧由连接适配器交给各自的协议处理器就地处理，只有 op=0 的业务事件经队列进入分发——依赖关系与设计决策详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+组件在 `run_loop` 中显式装配，依赖关系与设计决策详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 特性
 
-- 内置协议处理器（`ws_protocol.py` / `webhook_protocol.py`）：HELLO 鉴权（IDENTIFY/RESUME 自动切换）、READY 会话捕获、INVALID_SESSION 会话失效处理；心跳由连接器按连接生命周期驱动
 - 断线自动重连（指数退避 + 心跳看门狗），重连时自动 RESUME 续传
-- Webhook 接入自带 Ed25519 验签、op=13 验证应答与 60s TTL 事件去重
-- 事件订阅由项目根目录的 `intents.toml` 控制，按大类（Intents 分组）开关，将对应分组改为 `true` 即可
-- Markdown 与内嵌按钮一等支持：`post_group_message(..., markdown=..., keyboard=...)` 自动置 msg_type=2，`respond_interaction()` 回应按钮回调
-- 组件在 `run_loop` 显式装配（无 DI 框架依赖），全 SDK 共享一个 HTTP 连接池
+- Webhook 接入自带 Ed25519 验签、op=13 验证应答与事件去重
+- 事件订阅由项目根目录的 `intents.toml` 按大类开关
+- Markdown 与内嵌按钮一等支持，`respond_interaction()` 回应按钮回调
+- 组件显式装配（无全局单例），全 SDK 共享一个 HTTP 连接池
 
 ## 配置
 
@@ -55,7 +56,7 @@ flowchart TB
 ```ini
 APPID=你的AppID
 APPSECRET=你的AppSecret
-BASE_URL=https://api.bot.qq.com   # 可选，默认官方地址
+BASE_URL=https://api.bot.qq.com   # 可选
 TIMEOUT=5000                      # 可选，毫秒
 CONNECTER=websocket               # websocket 或 webhook
 
@@ -67,45 +68,22 @@ WEBHOOK_PATH=/qqbot/webhook
 
 ## 使用
 
-编写入口（如 `main.py`），把自己构造的 `EventEmitter` 传给 `main()`：
-
 ```python
 from qqbotsdk import EventEmitter, main
+from qqbotsdk.payloads import GroupAtMessage
+from qqbotsdk.api import BotApi
 
 ee = EventEmitter()
 
-# 方式一：裸参数（d 为原始事件数据）
+# handler 形参按标注注入 payload 与 BotApi 等组件（也支持裸参数 d）
 @ee.on("GROUP_AT_MESSAGE_CREATE")
-async def on_group_message(d):
-    print("收到群消息:", d)
-
-# 方式二：类型化 payload（dataclass，见 qqbotsdk.payloads）
-from qqbotsdk.payloads import GroupAtMessage
-
-@ee.on("GROUP_AT_MESSAGE_CREATE")
-async def on_group_message(msg: GroupAtMessage):
-    print(msg.group_openid, msg.user_openid, msg.content)
-
-# 方式三：参数注入（按形参标注装配，payload 与 `BotApi` 等组件可任意组合）
-from qqbotsdk.api import BotApi
-from qqbotsdk.events import Event
-from qqbotsdk.payloads import GroupAtMessage
-
-@ee.on("GROUP_AT_MESSAGE_CREATE")
-async def handle(msg: GroupAtMessage, event: Event, api: BotApi):
-    print(event.event_id)  # 信封信息（op/t/d/id）经 Event 取用，事件字段走 payload
-    # 被动回复：带 msg_id（群聊 5 分钟/单聊 60 分钟内有效，最多分别回复 5/4 次）；
-    # 同一条消息多次回复递增 msg_seq
+async def on_group_message(msg: GroupAtMessage, api: BotApi):
+    # 被动回复带 msg_id；多次回复递增 msg_seq；失败抛 ApiError
     await api.post_group_message(
         msg.group_openid,
         content=f"你说：{msg.content}",
         msg_id=msg.id,
-    )   # 失败抛 ApiError；富媒体先 upload_group_file 拿 file_info
-
-# 业务事件（op=0）才进分发，返回值不回流，回复请显式调 BotApi；
-# 协议帧（HELLO/READY/INVALID_SESSION/op=13）由各接入方式的协议处理器
-# 在连接器内就地处理，不进队列、也不会触达 handler。
-# 单个 handler 抛异常不会影响其他 handler 和主循环，异常会被记录。
+    )
 
 if __name__ == "__main__":
     main(ee)
@@ -117,10 +95,9 @@ if __name__ == "__main__":
 uv run python main.py
 ```
 
-Webhook 接入：将 `.env` 中 `CONNECTER` 改为 `webhook`，运行后把
-`http://<你的域名>:8080/qqbot/webhook` 配置到 QQ 开放平台回调地址（仅支持 80/443/8080/8443 端口，需公网 HTTPS）。
+Webhook 接入：`.env` 中 `CONNECTER` 改为 `webhook`，再把回调地址配置到 QQ 开放平台（仅支持 80/443/8080/8443 端口，需公网 HTTPS）。
 
-完整可运行示例见 [examples/](examples/)：群机器人（文本/图片回复、入群欢迎、单聊回复）与 Webhook 最小接入。
+完整示例见 [examples/](examples/)，更多写法见[使用指南](docs/GUIDE.md)。
 
 ## 开发
 
@@ -129,15 +106,13 @@ uv run pytest    # 单元测试
 uv run ruff check src tests examples && uv run pyright
 ```
 
-推送到 main 与 Pull Request 会由 Gitea Actions 自动执行同样的 ruff + pyright 检查（[.gitea/workflows/ci.yml](.gitea/workflows/ci.yml)）。
+推送与 Pull Request 由 GitHub Actions 自动执行同样的检查（[.github/workflows/ci.yml](.github/workflows/ci.yml)）。
 
-文档站点基于 [docsify](https://docsify.js.org/)（无需构建，仓库根 `index.html` + Markdown），本地预览：
+文档站点基于 [docsify](https://docsify.js.org/)，文档变更时自动发布（[.github/workflows/deploy-docs.yml](.github/workflows/deploy-docs.yml)）；本地预览：
 
 ```bash
-npx docsify-cli serve    # 打开 http://localhost:3000
+npx docsify-cli serve
 ```
-
-线上部署：文档文件变更时 GitHub Actions 自动把纯文档组装进 `docs` 分支（[.github/workflows/deploy-docs.yml](.github/workflows/deploy-docs.yml)，与源码历史无关的孤儿分支）；Cloudflare Pages 连接本仓库、生产分支选 `docs`、构建命令留空、输出目录填 `/` 即完成接入，站点地址 `https://<项目名>.pages.dev`。
 
 ## 待完善
 
