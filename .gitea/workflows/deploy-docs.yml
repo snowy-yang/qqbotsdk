@@ -19,10 +19,14 @@ jobs:
     name: Cloudflare Pages
     runs-on: ubuntu-latest
     steps:
-      # 不用 actions/checkout（runner 对 github 连通性不稳，见 probe.yml），
-      # 改从 Gitea 本体克隆
-      - name: 检出代码
-        run: git clone --depth=1 "${GITHUB_SERVER_URL:-https://gitea.4i.hk}/${GITHUB_REPOSITORY}.git" .
+      # 不用 actions/checkout、不用 git（runner 对 github 连通性不稳，见
+      # probe.yml）：改走 Gitea archive 接口拉源码 tarball
+      - name: 拉源码
+        run: |
+          SERVER="${GITHUB_SERVER_URL:-https://gitea.4i.hk}"
+          curl -sL "$SERVER/api/v1/repos/$GITHUB_REPOSITORY/archive/$GITHUB_SHA.tar.gz" -o src.tgz \
+            && mkdir src && tar -xzf src.tgz -C src --strip-components=1 \
+            && mv src/* . && rm -rf src src.tgz
 
       # 日志匿名不可读：把 secrets 在场情况写进 commit status 便于远程
       # 排查（只报 set/MISSING，不泄露值）
