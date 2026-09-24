@@ -22,6 +22,22 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      # 日志匿名不可读：把 secrets 在场情况写进 commit status 便于远程
+      # 排查（只报 set/MISSING，不泄露值）
+      - name: 探测 secrets 是否配置
+        env:
+          TOKEN: ${{ secrets.GITEA_TOKEN }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          SERVER="${GITHUB_SERVER_URL:-https://gitea.4i.hk}"
+          s() { [ -n "$2" ] && echo set || echo MISSING; }
+          curl -s -m 10 -X POST \
+            -H "Authorization: token $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"state\":\"success\",\"context\":\"deploy/secrets\",\"description\":\"CLOUDFLARE_API_TOKEN=$(s x "$CF_TOKEN") CLOUDFLARE_ACCOUNT_ID=$(s x "$CF_ACCOUNT")\"}" \
+            "$SERVER/api/v1/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -o /dev/null
+
       - name: 组装并部署（wrangler Direct Upload）
         run: bash scripts/deploy_docs.sh
         env:

@@ -14,18 +14,13 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # 不用 setup-uv：它要从 github.com 拉 uv 二进制与 CPython——runner
-      # 主机对 github 的连通性不可靠（见 probe.yml 探测）。改走 pip/tuna
-      # 装 uv，CPython 走 npmmirror 的 python-build-standalone 镜像，
-      # 包索引走 tuna。
+      # runner 出网探测显示 github/pypi 均可达（见 probe.yml），无需镜像：
+      # pip 从 pypi 装 uv，uv sync 自取 CPython 与依赖
       - name: 安装 uv
-        run: pip install -i https://pypi.tuna.tsinghua.edu.cn/simple uv
+        run: pip install uv
 
       - name: 同步依赖（含 dev 组）
         run: uv sync
-        env:
-          UV_DEFAULT_INDEX: https://pypi.tuna.tsinghua.edu.cn/simple
-          UV_PYTHON_INSTALL_MIRROR: https://registry.npmmirror.com/-/binary/python-build-standalone
 
       - name: ruff 静态检查
         run: uv run ruff check src tests examples
