@@ -20,8 +20,9 @@
 - OpenAPI 限流与鉴权自愈：`BotApi.request` 对 429 自动重试（最多 3 次，优先 `Retry-After`，脏值容错解析，退避封顶 30s）；401 强制刷新 token 后重试一次，token 被服务端提前作废不再直接抛错
 - 群消息全量模式：新增 `GROUP_MESSAGE_CREATE` 事件接收，与 `GROUP_AT_MESSAGE_CREATE` 共用 `GroupAtMessage`（需在开放平台开通"接收所有消息"权限，不限 @机器人）；`GroupAtMessage` 补齐官方新增的 `message_type`/`message_scene`/`attachments`/`mentions`/`ark_data`/`msg_elements` 字段
 - **连接寿命主动重连**：服务端约 1 小时后会无预警断开连接（实测），故连接存活到 `_SERVER_LIFETIME - _RECONNECT_MARGIN`（默认 60min − 10min = 50min）时由 SDK 主动收尾重连——走正常 RESUME 续传、期间消息由网关补发，而不是被服务端掐断后由看门狗判成异常断开；收帧超时在"静默阈值"与"寿命余量"两个截止里取先到者，静默仍归看门狗处理
-- GitHub Actions：push/PR 自动执行 `ruff check`、`pyright` 与 pytest；文档文件变更时自动把纯文档组装进 `docs` 分支（与源码历史无关的孤儿分支），供 Cloudflare Pages 直连 GitHub 仓库部署（生产分支 `docs`，零构建）
 - 文档站点：基于 docsify（侧边栏、全文搜索、代码复制、mermaid 图渲染、分页），`npx docsify-cli serve` 本地预览；新增 `examples/README.md` 示例索引
+- Gitea Actions CI：push（main）/Pull Request/手动触发时自动执行 `ruff check` 与 `pyright`（`.gitea/workflows/ci.yml`，uv 同步依赖后运行与本地开发一致的检查命令）
+- 文档站线上部署：`scripts/deploy_docs.sh` 组装纯文档目录（不携带源码）并经 wrangler 上传 Cloudflare Pages（Direct Upload，零构建）；`.gitea/workflows/deploy-docs.yml` 在 main 的文档文件变更时自动部署
 
 ### 变更
 

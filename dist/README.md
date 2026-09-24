@@ -137,7 +137,7 @@ uv run ruff check src tests examples && uv run pyright
 npx docsify-cli serve    # 打开 http://localhost:3000
 ```
 
-线上部署：文档文件变更时 GitHub Actions 自动把纯文档组装进 `docs` 分支（[.github/workflows/deploy-docs.yml](.github/workflows/deploy-docs.yml)，与源码历史无关的孤儿分支）；Cloudflare Pages 连接本仓库、生产分支选 `docs`、构建命令留空、输出目录填 `/` 即完成接入，站点地址 `https://<项目名>.pages.dev`。
+线上部署在 Cloudflare Pages（Direct Upload，Gitea 无法走 Pages 的 Git 直连）：`bash scripts/deploy_docs.sh` 组装 `dist/` 并经 wrangler 上传，站点地址 `https://<项目名>.pages.dev`；项目名默认 `qqbotsdk-docs`，可传参或 `PROJECT_NAME` 覆盖。CI 自动部署：Gitea 仓库配置 `CLOUDFLARE_API_TOKEN`（权限 Account → Cloudflare Pages → Edit）与 `CLOUDFLARE_ACCOUNT_ID` 两个 secrets 后，main 上文档文件变更即自动部署（[.gitea/workflows/deploy-docs.yml](.gitea/workflows/deploy-docs.yml)）。
 
 ## 待完善
 

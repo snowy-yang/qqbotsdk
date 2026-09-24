@@ -1,4 +1,4 @@
-name: 部署文档（Cloudflare Pages）
+name: 部署文档（同步 docs 分支）
 
 on:
   push:
@@ -10,20 +10,35 @@ on:
       - "docs/**"
       - "examples/**"
       - "CHANGELOG.md"
-      - "scripts/deploy_docs.sh"
       - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  deploy-docs:
-    name: Cloudflare Pages
+  sync-docs:
+    name: 组装并强推 docs 分支
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 组装并部署（wrangler Direct Upload）
-        run: bash scripts/deploy_docs.sh
+      # docs 分支只含文档站文件（孤儿分支，与源码历史无关），
+      # 供 Cloudflare Pages 直连：生产分支 docs、构建命令留空、输出目录 /
+      - name: 组装纯文档并推送 docs 分支
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf site && mkdir site
+          cp index.html README.md _sidebar.md CHANGELOG.md site/
+          cp -r docs examples site/
+          cp .nojekyll site/ 2>/dev/null || true
+          find site -type d -name __pycache__ -exec rm -rf {} +
+          cd site
+          git init -q -b docs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "docs: 同步自 main@${GITHUB_SHA:0:7}"
+          git push -q --force "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" docs

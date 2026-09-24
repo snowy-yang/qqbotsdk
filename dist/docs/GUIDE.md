@@ -16,8 +16,7 @@ API 细节见 [API.md](API.md)，内部架构见 [ARCHITECTURE.md](ARCHITECTURE.
 项目未发布到 PyPI，从 Gitea 仓库安装（或克隆到本地后用路径安装）：
 
 ```bash
-uv add git+https://github.com/snowy-yang/qqbotsdk      # 从 GitHub 安装
-uv add git+https://gitea.4i.hk/hhhge/qqbotsdk          # 或 Gitea 镜像
+uv add git+https://gitea.4i.hk/hhhge/qqbotsdk          # 从仓库安装
 uv add /path/to/qqbotsdk                               # 本地路径安装
 ```
 
