@@ -7,19 +7,18 @@ HELLO/READY/INVALID_SESSION/op=13 这类协议帧在适配器内就地处理，�
 与 `webhook_protocol.py`。
 """
 
-from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Protocol
 
 from .model import Payload
 
 
-class BaseProtocol(ABC):
+class BaseProtocol(Protocol):
     """适配器专有的协议处理器：实现方返回需要回送的响应体。"""
 
-    @abstractmethod
     async def on_frame(self, payload: Payload) -> Payload | dict[str, Any] | None:
         """处理一条帧，返回需回送的响应体（无需回送则 None）。
 
         IDENTIFY/RESUME 等握手应答、op=13 验证应答都经返回值回送；业务事件
         （op=0）不必处理，连接器会照常入队分发。
         """
+        ...

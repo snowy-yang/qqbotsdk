@@ -16,9 +16,8 @@
 """
 
 import asyncio
-from abc import ABC, abstractmethod
 from time import monotonic
-from typing import cast
+from typing import Protocol, cast
 
 import aiohttp
 import ujson
@@ -34,10 +33,9 @@ from .session import Session
 from .token import AccessToken
 
 
-class Connecter(ABC):
+class Connecter(Protocol):
     """连接适配器接口：两种接入方式都实现 `run()` 常驻运行。"""
 
-    @abstractmethod
     async def run(self) -> None: ...
 
 
