@@ -82,26 +82,21 @@ QQ 网关只认分组位掩码，**组内单个事件无法单独开关**——�
 
 ## 编写 handler
 
-用装饰器把 handler 注册到 `EventEmitter`，事件名即线上 payload 的 `t` 名（如 `GROUP_AT_MESSAGE_CREATE`）。三种写法可混用：
+用装饰器把 handler 注册到 `EventEmitter`，事件名即线上 payload 的 `t` 名（如 `GROUP_AT_MESSAGE_CREATE`）。参数按类型标注注入，可混用：
 
 ```python
 from qqbotsdk import EventEmitter
 
 ee = EventEmitter()
 
-# 方式一：裸参数，d 为原始事件 dict
-@ee.on("GROUP_AT_MESSAGE_CREATE")
-async def raw(d):
-    print(d)
-
-# 方式二：标注 payload dataclass，拿到解析后的对象
+# 方式一：标注 payload dataclass，拿到解析后的对象
 from qqbotsdk.payloads import GroupAtMessage
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")
 async def typed(msg: GroupAtMessage):
     print(msg.group_openid, msg.user_openid, msg.content)
 
-# 方式三：参数注入，标注组件类型即拿到实例（payload 与组件可任意组合）
+# 方式二：参数注入，标注组件类型即拿到实例（payload 与组件可任意组合）
 from qqbotsdk.api import BotApi
 from qqbotsdk.payloads import GroupAtMessage
 
@@ -114,10 +109,11 @@ handler 参数按标注解析的完整规则：
 
 | 参数标注 | 得到 |
 |---|---|
-| payload dataclass（如 `GroupAtMessage`） | 解析后的 dataclass 对象；未收录事件回退原始 dict |
+| payload dataclass（如 `GroupAtMessage`） | 解析后的 dataclass 对象 |
 | `Event` | 事件封装对象，只含信封语义（`.raw`/`.data`/`.typed`/`.type`/`.event_id`）；事件体字段请标注 payload dataclass 获取 |
-| 组件类型（`BotApi`/`Session`/`Config` 等） | `emitter.services` 中按类型登记的实例；未登记回退传原始 d |
-| 无标注 | 原始 d（即事件 dict） |
+| 组件类型（`BotApi`/`Session`/`Config` 等） | `emitter.services` 中按类型登记的实例 |
+
+无标注或标注以上三者皆非的形参会在分发时抛 `ValueError`（记日志、按 handler 隔离）——SDK 不注入原始数据：要事件体字段就标注 payload dataclass，要完整信封就标注 `Event`。
 
 注意：
 
@@ -239,5 +235,5 @@ uv run python main.py
 - **`ApiError`**：HTTP ≥400 时抛出，`e.status`/`e.code`/`e.message` 可用于排查（如被动回复超时、msg_seq 重复、内容审核不通过）。
 - **日志出现 `TokenError: 获取 access_token 失败`**：appid/secret 配置错误或被平台拒绝，`code`/`message` 就是 QQ 返回的真实原因，对照官方错误码排查即可。
 - **handler 没被触发**：检查 intents.toml 中该事件所属分组是否为 `true`；群/单聊事件需开通对应能力；频道消息事件区分公私域。
-- **想收原始数据**：handler 裸参数或标 `Event`，`event.raw` 是完整线上 payload（含 op/t/d）。
+- **想收原始数据**：标注 `Event`，`event.raw` 是完整线上 payload（含 op/t/d），`event.typed` 是事件体解析结果（未收录事件类型为 dict）。
 - **日志**：SDK 用 loguru 输出中文日志，连接、重连、API 失败、handler 异常均有记录，可直接用 loguru 配置格式与落盘。

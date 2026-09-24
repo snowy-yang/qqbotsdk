@@ -4,8 +4,8 @@
   按 t 名路由到 `@on` 注册的 handler；协议帧（HELLO/INVALID_SESSION/op=13 等）
   不进队列，由连接适配器的协议处理器就地处理（见 protocol.py）；
 - handler 参数按形参标注注入：payload dataclass → 解析对象，`Event` →
-  事件封装，`services` 里登记的组件类型 → 实例，其余直传原始 d
-  （可能是 dict、标量甚至 None）；
+  事件封装，`services` 里登记的组件类型 → 实例；无标注或标注三者皆非
+  则解析即抛错（经异常隔离记日志）——不注入原始 d；
 - 业务 handler 返回值不回流；handler 异常就地隔离，不影响其他 handler。
 - `on(..., background=True)` 把 handler 放进后台任务并发执行：
   不阻塞事件流，但同事件 handler 间失去先后保证；
@@ -144,9 +144,8 @@ class EventEmitter:
         self, fn: Callable[..., Awaitable[Any]], event: Event
     ) -> list[Any]:
         """按 handler 形参标注解析：payload dataclass → 解析对象，`Event` → 事件
-        封装，`services` 登记的组件类型 → 实例，其余（含无标注）→ 原始 d
-        （Event.data 是 dict 化视图，标量 d 如 INVALID_SESSION 的 true/false
-        必须走这里才能拿到原值）。"""
+        封装，`services` 登记的组件类型 → 实例；无标注或标注三者皆非则抛
+        ValueError——原始 d 不注入，静默传 dict 比报错更难排查。"""
         cached = self._signatures.get(fn)
         if cached is None:
             cached = (
@@ -166,5 +165,9 @@ class EventEmitter:
             elif hint in self.services:
                 args.append(self.services[hint])
             else:
-                args.append(event.raw.get("d"))
+                raise ValueError(
+                    f"事件处理器 {getattr(fn, '__qualname__', fn)} 的形参 {name} "
+                    f"不可注入（标注 {hint!r} 只能是 payload dataclass、Event "
+                    "或已登记进 services 的组件类型）"
+                )
         return args

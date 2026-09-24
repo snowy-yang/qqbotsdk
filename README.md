@@ -75,7 +75,7 @@ from qqbotsdk.api import BotApi
 
 ee = EventEmitter()
 
-# handler 形参按标注注入 payload 与 BotApi 等组件（也支持裸参数 d）
+# handler 形参按标注注入 payload 与 BotApi 等组件
 @ee.on("GROUP_AT_MESSAGE_CREATE")
 async def on_group_message(msg: GroupAtMessage, api: BotApi):
     # 被动回复带 msg_id；多次回复递增 msg_seq；失败抛 ApiError

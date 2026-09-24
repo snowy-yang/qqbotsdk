@@ -179,21 +179,6 @@ async def test_typed_annotation_receives_dataclass():
     assert received[0].group_openid == "G1"
 
 
-async def test_untyped_annotation_still_receives_raw_dict():
-    queue = EventQueue()
-    emitter = EventEmitter(queue)
-    received: list[dict] = []
-
-    @emitter.on("GROUP_AT_MESSAGE_CREATE")
-    async def handler(d):
-        received.append(d)
-
-    await emitter.emit(
-        {"op": Opcode.DISPATCH, "t": "GROUP_AT_MESSAGE_CREATE", "d": {"content": "x"}}
-    )
-    assert received == [{"content": "x"}]
-
-
 def test_parse_group_member_and_join_request_events():
     from qqbotsdk.payloads import (
         GroupJoinRequest,

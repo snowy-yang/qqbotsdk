@@ -54,12 +54,13 @@ async def slow(...): ...
 
 按参数类型标注解析，可任意混用：
 
-| 标注 | 得到 | 未命中时 |
-|---|---|---|
-| payload dataclass（`payloads` 中的类型） | `Event.typed` 解析对象 | 回退传原始 d |
-| `Event` | 事件封装对象 | — |
-| 组件类型（`BotApi`/`Session`/`Config` 等已登记进 `ee.services` 的类型） | 登记的实例 | 回退传原始 d |
-| 无标注 | 原始 d（业务事件即事件 dict；协议事件可能是标量，如 `INVALID_SESSION` 的 `resumable: bool`） | — |
+| 标注 | 得到 |
+|---|---|
+| payload dataclass（`payloads` 中的类型） | `Event.typed` 解析对象 |
+| `Event` | 事件封装对象 |
+| 组件类型（`BotApi`/`Session`/`Config` 等已登记进 `ee.services` 的类型） | 登记的实例 |
+
+无标注或标注以上三者皆非的形参在分发时抛 `ValueError`（记日志、按 handler 隔离）——SDK 不注入原始 d，要事件体字段就标注 payload dataclass，要完整信封就标注 `Event`。
 
 ## Event
 
@@ -284,7 +285,7 @@ async def slow(...): ...
 | AUDIO_ACTION | `AUDIO_START` / `AUDIO_FINISH` / `AUDIO_ON_MIC` / `AUDIO_OFF_MIC` | `AudioAction` |
 | —（DISPATCH 协议事件） | `READY` | `Ready` |
 
-未收录的事件（如私域 `MESSAGE_CREATE`、`DIRECT_MESSAGE_DELETE`、`GUILD_MEMBER_*`）handler 收到原始 dict；新增事件在 `payloads.py` 加 dataclass 并登记 `EVENT_TYPES` 即可。
+未收录的事件（如私域 `MESSAGE_CREATE`、`DIRECT_MESSAGE_DELETE`、`GUILD_MEMBER_*`）没有对应 dataclass 可标注，请标注 `Event` 经 `.typed`（未知事件类型为 dict）或 `.raw` 访问；新增事件在 `payloads.py` 加 dataclass 并登记 `EVENT_TYPES` 即可。
 
 `GROUP_MESSAGE_CREATE` 是群消息**全量模式**：需在开放平台开通"接收所有消息"权限，群里每条消息（不限 @机器人）都推送此事件，与 `GROUP_AT_MESSAGE_CREATE` 共用 `GroupAtMessage`。官方提示同一 msg_id 可能重复推送，业务侧需按 `id` 去重。
 

@@ -26,7 +26,7 @@ async def test_same_handler_registered_twice_runs_once():
     emitter = EventEmitter()
     calls: list[str] = []
 
-    async def handler(_):
+    async def handler():
         calls.append("hit")
 
     emitter.on("READY", handler)
@@ -41,11 +41,11 @@ async def test_handlers_run_in_registration_order():
     order: list[int] = []
 
     @emitter.on("READY")
-    async def first(_):
+    async def first():
         order.append(1)
 
     @emitter.on("READY")
-    async def second(_):
+    async def second():
         order.append(2)
 
     await emitter.emit({"op": Opcode.DISPATCH, "t": "READY", "d": {}})
@@ -59,11 +59,11 @@ async def test_handler_exception_is_isolated():
     called: list[str] = []
 
     @emitter.on("READY")
-    async def bad(_):
+    async def bad():
         raise RuntimeError("boom")
 
     @emitter.on("READY")
-    async def good(_):
+    async def good():
         called.append("ok")
 
     await emitter.emit({"op": Opcode.DISPATCH, "t": "READY", "d": {}})
@@ -77,8 +77,8 @@ async def test_protocol_frame_never_reaches_business_handler():
     called: list[object] = []
 
     @emitter.on(Opcode.HEARTBEAT)
-    async def beat(d):
-        called.append(d)
+    async def beat():
+        called.append("hit")
 
     await emitter.emit({"op": Opcode.HEARTBEAT, "d": 0})
     assert called == []
@@ -94,11 +94,11 @@ async def test_service_annotation_resolves_from_services():
 
     store = Store()
     emitter.services[Store] = store
-    received: list[tuple[GroupAtMessage, Store, dict]] = []
+    received: list[tuple[GroupAtMessage, Store]] = []
 
     @emitter.on("GROUP_AT_MESSAGE_CREATE")
-    async def handler(msg: GroupAtMessage, st: Store, d):
-        received.append((msg, st, d))
+    async def handler(msg: GroupAtMessage, st: Store):
+        received.append((msg, st))
 
     await emitter.emit(
         {
@@ -108,24 +108,25 @@ async def test_service_annotation_resolves_from_services():
         }
     )
     assert len(received) == 1
-    msg, got, d = received[0]
+    msg, got = received[0]
     assert got is store
     assert isinstance(msg, GroupAtMessage) and msg.content == "hi"
-    assert d == {"content": "hi", "group_openid": "G1"}
 
 
 @pytest.mark.asyncio
-async def test_unregistered_annotation_falls_back_to_raw_dict():
-    queue = EventQueue()
-    emitter = EventEmitter(queue)
-    received: list[dict] = []
+async def test_unresolvable_param_raises_instead_of_raw_dict():
+    """原始 d 不再注入：无标注或标注不可解析的形参直接抛错（由异常隔离记日志）。"""
+    emitter = EventEmitter()
+    received: list[object] = []
 
     @emitter.on("READY")
     async def handler(dep: Session):  # Session 未登记进 services
         received.append(dep)
 
-    await emitter.emit({"op": Opcode.DISPATCH, "t": "READY", "d": {"session_id": "s1"}})
-    assert received == [{"session_id": "s1"}]
+    event = Event({"op": Opcode.DISPATCH, "t": "READY", "d": {"session_id": "s1"}})
+    with pytest.raises(ValueError, match="不可注入"):
+        emitter._resolve_params(handler, event)
+    assert received == []
 
 
 @pytest.mark.asyncio
