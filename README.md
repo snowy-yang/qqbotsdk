@@ -86,19 +86,20 @@ from qqbotsdk.payloads import GroupAtMessage
 async def on_group_message(msg: GroupAtMessage):
     print(msg.group_openid, msg.user_openid, msg.content)
 
-# 方式三：参数注入（按形参标注解析，`BotApi` 等组件由 SDK 装配）
+# 方式三：参数注入（按形参标注装配，payload 与 `BotApi` 等组件可任意组合）
 from qqbotsdk.api import BotApi
 from qqbotsdk.events import Event
+from qqbotsdk.payloads import GroupAtMessage
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")
-async def handle(event: Event, api: BotApi):
-    print(event.user_id, event.group_id, event.content)
+async def handle(msg: GroupAtMessage, event: Event, api: BotApi):
+    print(event.event_id)  # 信封信息（op/t/d/id）经 Event 取用，事件字段走 payload
     # 被动回复：带 msg_id（群聊 5 分钟/单聊 60 分钟内有效，最多分别回复 5/4 次）；
     # 同一条消息多次回复递增 msg_seq
     await api.post_group_message(
-        event.group_id,
-        content=f"你说：{event.content}",
-        msg_id=event.message_id,
+        msg.group_openid,
+        content=f"你说：{msg.content}",
+        msg_id=msg.id,
     )   # 失败抛 ApiError；富媒体先 upload_group_file 拿 file_info
 
 # 业务事件（op=0）才进分发，返回值不回流，回复请显式调 BotApi；
@@ -128,11 +129,15 @@ uv run pytest    # 单元测试
 uv run ruff check src tests examples && uv run pyright
 ```
 
+推送到 main 与 Pull Request 会由 Gitea Actions 自动执行同样的 ruff + pyright 检查（[.gitea/workflows/ci.yml](.gitea/workflows/ci.yml)）。
+
 文档站点基于 [docsify](https://docsify.js.org/)（无需构建，仓库根 `index.html` + Markdown），本地预览：
 
 ```bash
 npx docsify-cli serve    # 打开 http://localhost:3000
 ```
+
+线上部署在 Cloudflare Pages（Direct Upload，Gitea 无法走 Pages 的 Git 直连）：`bash scripts/deploy_docs.sh` 组装 `dist/` 并经 wrangler 上传，站点地址 `https://<项目名>.pages.dev`；项目名默认 `qqbotsdk-docs`，可传参或 `PROJECT_NAME` 覆盖。CI 自动部署：Gitea 仓库配置 `CLOUDFLARE_API_TOKEN`（权限 Account → Cloudflare Pages → Edit）与 `CLOUDFLARE_ACCOUNT_ID` 两个 secrets 后，main 上文档文件变更即自动部署（[.gitea/workflows/deploy-docs.yml](.gitea/workflows/deploy-docs.yml)）。
 
 ## 待完善
 
