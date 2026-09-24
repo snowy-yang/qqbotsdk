@@ -11,16 +11,20 @@ jobs:
     name: ruff + pyright
     runs-on: ubuntu-latest
     steps:
+      # 不用 actions/checkout：runner 对 github 的连通性不稳定（probe.yml
+      # 实测多次工作流死于 checkout 阶段），改从 Gitea 本体克隆
       - name: 检出代码
-        uses: actions/checkout@v4
+        run: git clone --depth=1 "${GITHUB_SERVER_URL:-https://gitea.4i.hk}/${GITHUB_REPOSITORY}.git" .
 
-      # runner 出网探测显示 github/pypi 均可达（见 probe.yml），无需镜像：
-      # pip 从 pypi 装 uv，uv sync 自取 CPython 与依赖
       - name: 安装 uv
         run: pip install uv
 
       - name: 同步依赖（含 dev 组）
         run: uv sync
+        env:
+          # CPython 3.13 走 npmmirror 的 python-build-standalone 镜像，
+          # 避开 github releases 的间歇性不通
+          UV_PYTHON_INSTALL_MIRROR: https://registry.npmmirror.com/-/binary/python-build-standalone
 
       - name: ruff 静态检查
         run: uv run ruff check src tests examples
