@@ -51,7 +51,7 @@ def test_non_bool_value_raises(tmp_path):
 
 def test_legacy_per_event_switches_are_rejected(tmp_path):
     path = write(tmp_path, "[GROUP_AND_C2C_EVENT]\nC2C_MESSAGE_CREATE = true\n")
-    with pytest.raises(ValueError, match="组内事件开关"):
+    with pytest.raises(ValueError, match="true/false"):
         get_intents(path)
 
 

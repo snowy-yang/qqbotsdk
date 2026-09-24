@@ -41,10 +41,6 @@ def get_intents(path: str) -> int:
         intent = INTENT_GROUPS.get(group)
         if intent is None:
             raise ValueError(f"未知的 intents 分组: {group}")
-        if isinstance(enabled, dict):
-            raise ValueError(
-                f"intents 分组 {group} 不支持组内事件开关，请改为 {group} = true/false"
-            )
         if not isinstance(enabled, bool):
             raise ValueError(
                 f"intents 分组 {group} 的值应为 true/false，实际为 {enabled!r}"
