@@ -18,7 +18,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
-          enable-cache: true
+          # 不开 enable-cache：Gitea 的 Actions 缓存服务不完善，常导致任务末尾失败
 
       - name: 同步依赖（含 dev 组）
         run: uv sync
