@@ -100,13 +100,13 @@ from qqbotsdk.payloads import GroupAtMessage
 async def typed(msg: GroupAtMessage):
     print(msg.group_openid, msg.user_openid, msg.content)
 
-# 方式三：参数注入，标注组件类型即拿到实例
+# 方式三：参数注入，标注组件类型即拿到实例（payload 与组件可任意组合）
 from qqbotsdk.api import BotApi
-from qqbotsdk.events import Event
+from qqbotsdk.payloads import GroupAtMessage
 
 @ee.on("GROUP_AT_MESSAGE_CREATE")
-async def di(event: Event, api: BotApi):
-    await api.post_group_message(event.group_id, content="收到", msg_id=event.message_id)
+async def di(msg: GroupAtMessage, api: BotApi):
+    await api.post_group_message(msg.group_openid, content="收到", msg_id=msg.id)
 ```
 
 handler 参数按标注解析的完整规则：
@@ -114,7 +114,7 @@ handler 参数按标注解析的完整规则：
 | 参数标注 | 得到 |
 |---|---|
 | payload dataclass（如 `GroupAtMessage`） | 解析后的 dataclass 对象；未收录事件回退原始 dict |
-| `Event` | 事件封装对象（`.raw`/`.data`/`.typed`/`.user_id`/`.group_id`/`.content`/`.message_id`/`.event_id`） |
+| `Event` | 事件封装对象，只含信封语义（`.raw`/`.data`/`.typed`/`.type`/`.event_id`）；事件体字段请标注 payload dataclass 获取 |
 | 组件类型（`BotApi`/`Session`/`Config` 等） | `emitter.services` 中按类型登记的实例；未登记回退传原始 d |
 | 无标注 | 原始 d（即事件 dict） |
 

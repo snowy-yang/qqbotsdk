@@ -63,7 +63,7 @@ async def slow(...): ...
 
 ## Event
 
-`from qqbotsdk.events import Event`，一条 DISPATCH 事件的轻量封装，属性兼容群（openid）与频道两套字段名：
+`from qqbotsdk.events import Event`，业务事件推送信封（op/t/d/id）的轻量封装，只封装信封语义、不做字段名映射；事件体字段请标注对应 payload dataclass（见下文）获取解析结果：
 
 | 属性 | 说明 |
 |---|---|
@@ -71,11 +71,7 @@ async def slow(...): ...
 | `.data` | `d` 的 dict 拷贝 |
 | `.typed` | `d` 的 dataclass 解析结果（未知事件类型为 dict） |
 | `.type` | 事件 t 名 |
-| `.user_id` | 用户标识（兼容 `user_id`/`from_user_id`） |
-| `.group_id` | `group_openid` |
-| `.content` | 消息文本 |
-| `.message_id` | `d["id"]`，消息事件的被动回复凭据（msg_id） |
-| `.event_id` | 推送信封顶层的事件 id（与 op/t/d 平级，形如 `INTERACTION_CREATE:uuid`）；非消息事件（`INTERACTION_CREATE`/`GROUP_ADD_ROBOT` 等）的被动回复凭据只有这里能拿到，事件体里的裸 UUID 不行（官方点名的常见坑） |
+| `.event_id` | 推送信封顶层的事件 id（与 op/t/d 平级，形如 `INTERACTION_CREATE:uuid`）；非消息事件（`INTERACTION_CREATE`/`GROUP_ADD_ROBOT` 等）的被动回复凭据只有这里能拿到，事件体里的裸 UUID 不行（官方点名的常见坑）；消息事件的被动回复凭据是事件体的 `d.id`（payload 的 `.id` 字段，即 msg_id），不用这里 |
 
 ## Config
 

@@ -1,6 +1,7 @@
-"""Event 封装属性：message_id 取自事件体 d.id，event_id 取自信封顶层 id。"""
+"""Event 封装：信封顶层 event_id 与事件体 d 的访问（.data/.typed）。"""
 
 from qqbotsdk.events import Event
+from qqbotsdk.payloads import GroupAddRobot
 
 
 def make_event() -> Event:
@@ -17,7 +18,6 @@ def make_event() -> Event:
 def test_event_id_from_envelope():
     event = make_event()
     assert event.event_id == "evt-1"
-    assert event.group_id == "G1"
 
 
 def test_message_id_from_event_body():
@@ -29,11 +29,17 @@ def test_message_id_from_event_body():
             "d": {"id": "msgid-1", "group_openid": "G1", "content": "hi"},
         }
     )
-    assert event.message_id == "msgid-1"  # 消息事件回复用 msg_id
+    assert event.data["id"] == "msgid-1"  # 消息事件回复用 msg_id（事件体 d.id）
     assert event.event_id == "evt-2"  # 信封顶层 id 另有其值
+
+
+def test_typed_parses_event_body():
+    event = make_event()
+    typed = event.typed
+    assert isinstance(typed, GroupAddRobot)
+    assert typed.group_openid == "G1"
 
 
 def test_event_id_defaults_to_none():
     event = Event({"op": 0, "t": "READY", "d": {}})
     assert event.event_id is None
-    assert event.message_id is None

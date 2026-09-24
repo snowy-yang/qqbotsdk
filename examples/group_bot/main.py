@@ -13,7 +13,7 @@ from loguru import logger
 from qqbotsdk import EventEmitter, main
 from qqbotsdk.api import BotApi, button, keyboard
 from qqbotsdk.events import Event
-from qqbotsdk.payloads import C2CMessage, GroupAtMessage, Interaction
+from qqbotsdk.payloads import C2CMessage, GroupAddRobot, GroupAtMessage, Interaction
 
 ee = EventEmitter()
 
@@ -74,17 +74,15 @@ async def on_button_click(inter: Interaction, event: Event, api: BotApi) -> None
 
 
 @ee.on("GROUP_ADD_ROBOT")
-async def on_robot_added(event: Event, api: BotApi) -> None:
-    group_openid = event.group_id
+async def on_robot_added(added: GroupAddRobot, event: Event, api: BotApi) -> None:
     # 入群是事件而非消息：用信封顶层的事件 id 作 event_id 被动回复（拿不到则跳过）
-    event_id = event.event_id
-    if not (group_openid and event_id):
-        logger.info(f"机器人加入群聊 {group_openid}（无事件 ID，跳过欢迎语）")
+    if not (added.group_openid and event.event_id):
+        logger.info(f"机器人加入群聊 {added.group_openid}（无事件 ID，跳过欢迎语）")
         return
     await api.post_group_message(
-        group_openid,
+        added.group_openid,
         content="大家好，我是本群机器人，@我即可体验～",
-        event_id=event_id,
+        event_id=event.event_id,
     )
 
 
