@@ -1,0 +1,36 @@
+name: 网络探测
+
+# 探测 runner 主机对各关键站点的出网连通性，结果写入 commit status
+# （公开仓库匿名可读：GET /repos/{owner}/{repo}/commits/{sha}/status）。
+# 改动本文件推送即触发。
+
+on:
+  push:
+    paths: ['.gitea/workflows/probe.yml']
+
+jobs:
+  probe:
+    name: runner 出网探测
+    runs-on: ubuntu-latest
+    steps:
+      - name: 探测连通性并写入 commit status
+        env:
+          TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          SERVER="${GITHUB_SERVER_URL:-https://gitea.4i.hk}"
+          post() {
+            curl -s -m 10 -X POST \
+              -H "Authorization: token $TOKEN" \
+              -H 'Content-Type: application/json' \
+              -d "{\"state\":\"success\",\"context\":\"probe/$1\",\"description\":\"$2\"}" \
+              "$SERVER/api/v1/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+              -o /dev/null -w "probe/$1 = $2 (HTTP %{http_code})\n"
+          }
+          code() { curl -s -m 8 -o /dev/null -w '%{http_code}' -L "$1"; }
+          post github     "$(code https://github.com)"                              success
+          post uv-release "$(code https://github.com/astral-sh/uv/releases/latest)" success
+          post pypi       "$(code https://pypi.org/simple/)"                        success
+          post tuna       "$(code https://pypi.tuna.tsinghua.edu.cn/simple/)"       success
+          post npm        "$(code https://registry.npmjs.org)"                      success
+          post npmmirror  "$(code https://registry.npmmirror.com)"                  success
+          post cf-api     "$(code https://api.cloudflare.com/client/v4)"            success
