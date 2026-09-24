@@ -58,6 +58,7 @@
 - token 请求失败时抛出 `TokenError`（携带 QQ 返回的 `code`/`message`），不再抛出掩盖真实原因的 `KeyError: 'access_token'`
 - 修正被动回复 `event_id` 的指引：官方要求取网关帧最外层的 id（`Event.event_id`），事件体里的裸 UUID（`Interaction.id` 等）不能作 `event_id`，此前文档与 docstring 的说法有误
 - 响应 `Content-Type` 非 JSON 时不再抛 `ContentTypeError`（个别接口如回应互动返回 200 text/plain + `{}` body）；JSON 解析统一切换 ujson
+- 文档站点子页面左侧目录不加载：docsify 进入子目录页面会先请求 `<目录>/_sidebar.md`、请求失败才回退根目录，而 Cloudflare Pages 对缺失路径回退返回 `index.html`（状态 200），侧栏被当作 Markdown 解析成空白；`index.html` 的 alias 现将 `docs/`、`examples/` 的 `_sidebar.md` 请求映射回根目录
 
 ## [0.1.0] - 2026-09-14
 

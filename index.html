@@ -50,6 +50,11 @@
       alias: {
         '/examples': '/examples/README.md',
         '/examples/': '/examples/README.md',
+        // 子目录页面的 _sidebar.md 请求映射到根目录的：
+        // docsify 会先请求 <当前目录>/_sidebar.md，而 Cloudflare Pages 对
+        // 缺失文件回退 index.html 且状态 200，docsify 误当作侧栏解析导致目录空白
+        '/docs/_sidebar.md': '/_sidebar.md',
+        '/examples/_sidebar.md': '/_sidebar.md',
       },
       plugins: [
         // 把 ```mermaid 代码块替换为 div 后交给 mermaid 渲染（架构图/时序图）
