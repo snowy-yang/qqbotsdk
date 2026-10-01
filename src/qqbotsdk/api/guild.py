@@ -247,9 +247,7 @@ class GuildApi(BaseApi):
 
         需要管理员权限（同身份组的成员也可操作）。
         """
-        return await self.put(
-            f"/guilds/{guild_id}/members/{user_id}/roles/{role_id}"
-        )
+        return await self.put(f"/guilds/{guild_id}/members/{user_id}/roles/{role_id}")
 
     async def remove_guild_member_role(
         self, guild_id: str, user_id: str, role_id: str

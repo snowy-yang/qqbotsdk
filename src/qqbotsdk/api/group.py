@@ -31,7 +31,9 @@ class GroupApi(BaseApi):
         """
         return await self.get(f"/v2/groups/{group_openid}/info")
 
-    async def get_group_members(self, group_openid: str, cursor: str | None = None) -> dict:
+    async def get_group_members(
+        self, group_openid: str, cursor: str | None = None
+    ) -> dict:
         """获取群成员列表（GET /v2/groups/{group_openid}/members）。
 
         每次最多返回 30 条，翻页透传上次响应的 next_cursor（空串=末页）。
@@ -44,9 +46,7 @@ class GroupApi(BaseApi):
 
         返回昵称、角色（member/owner/admin）、入群时间等。
         """
-        return await self.get(
-            f"/v2/groups/{group_openid}/members/{member_openid}"
-        )
+        return await self.get(f"/v2/groups/{group_openid}/members/{member_openid}")
 
     async def get_group_bot_state(self, group_openid: str) -> dict:
         """获取机器人在指定群内的状态（GET .../bot_state）。
@@ -247,7 +247,9 @@ class GroupApi(BaseApi):
         对策略关联的全部群发起全量扫描，命中白名单号码的入群申请自动
         审批通过；异步执行，约 10 分钟完成。
         """
-        return await self.post(f"/v2/groups/join_approval_strategy/{strategy_id}/execute")
+        return await self.post(
+            f"/v2/groups/join_approval_strategy/{strategy_id}/execute"
+        )
 
     async def update_join_approval_strategy_whitelist(
         self, strategy_id: str, op: str, whitelist_users: list[str]

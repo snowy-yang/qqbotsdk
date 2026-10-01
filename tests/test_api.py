@@ -298,7 +298,9 @@ async def test_chunked_upload_group_and_c2c():
     await api.prepare_c2c_upload("U1", **common)
     assert cap["call"][:2] == ("POST", "/v2/users/U1/upload_prepare")
 
-    await api.finish_c2c_upload_part("U1", "up1", part_index=1, block_size=4096, md5="p1")
+    await api.finish_c2c_upload_part(
+        "U1", "up1", part_index=1, block_size=4096, md5="p1"
+    )
     method, path, kwargs = cap["call"]
     assert (method, path) == ("POST", "/v2/users/U1/upload_part_finish")
     assert kwargs["json"] == {
@@ -377,16 +379,18 @@ async def test_group_join_request_flow():
     assert (method, path) == ("GET", "/v2/groups/G1/join_request_list")
     assert kwargs["params"] == {"limit": 10}
 
-    await api.review_group_join_request(
-        "G1", "M1", "approve", join_request_id="j1"
-    )
+    await api.review_group_join_request("G1", "M1", "approve", join_request_id="j1")
     method, path, kwargs = cap["call"]
     assert (method, path) == ("POST", "/v2/groups/G1/approval_join_request/M1")
     assert kwargs["json"] == {"op": "approve", "join_request_id": "j1"}
 
     await api.review_group_join_request(
-        "G1", "M1", "decline", join_request_id="j1",
-        reject_reason="广告", add_to_member_blacklist=True,
+        "G1",
+        "M1",
+        "decline",
+        join_request_id="j1",
+        reject_reason="广告",
+        add_to_member_blacklist=True,
     )
     body = cap["call"][2]["json"]
     assert body == {
@@ -689,7 +693,9 @@ async def test_guild_members_mutes_and_api_permission():
     await api.get_guild_members("GID")
     assert cap["call"][:2] == ("GET", "/guilds/GID/members")
 
-    await api.remove_guild_member("GID", "U1", add_blacklist=True, delete_history_msg_days=7)
+    await api.remove_guild_member(
+        "GID", "U1", add_blacklist=True, delete_history_msg_days=7
+    )
     method, path, kwargs = cap["call"]
     assert (method, path) == ("DELETE", "/guilds/GID/members/U1")
     assert kwargs["json"] == {"add_blacklist": True, "delete_history_msg_days": 7}
@@ -717,7 +723,9 @@ async def test_guild_members_mutes_and_api_permission():
     await api.get_guild_api_permissions("GID")
     assert cap["call"][:2] == ("GET", "/guilds/GID/api_permission")
 
-    await api.create_api_permission_demand("GID", "C1", "/channels/x/messages", "POST", "d")
+    await api.create_api_permission_demand(
+        "GID", "C1", "/channels/x/messages", "POST", "d"
+    )
     method, path, kwargs = cap["call"]
     assert (method, path) == ("POST", "/guilds/GID/api_permission/demand")
     assert kwargs["json"] == {

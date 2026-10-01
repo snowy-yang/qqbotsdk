@@ -87,9 +87,7 @@ class ChannelApi(BaseApi):
         """
         return await self.get(f"/channels/{channel_id}/members/{user_id}/permissions")
 
-    async def get_channel_role_permissions(
-        self, channel_id: str, role_id: str
-    ) -> dict:
+    async def get_channel_role_permissions(self, channel_id: str, role_id: str) -> dict:
         """获取子频道指定身份组的权限（GET .../roles/{role_id}/permissions）。"""
         return await self.get(f"/channels/{channel_id}/roles/{role_id}/permissions")
 
