@@ -1,9 +1,9 @@
 """事件 payload 的 dataclass 定义与解析。
 
 handler 直接标注具体类型即可拿到解析后的对象（如
-`async def on_msg(msg: GroupAtMessage)`）；未收录的事件类型
-由 emitter 回退传原始 dict，新增事件只需在这里加 dataclass
-并登记到 EVENT_TYPES。
+`async def on_msg(msg: GroupAtMessage)`）；未收录的事件类型没有可标注的
+dataclass，只能经 `Event.typed` 拿到原始 dict——新增事件只需在这里加
+dataclass 并登记到 EVENT_TYPES。
 """
 
 from dataclasses import dataclass, fields

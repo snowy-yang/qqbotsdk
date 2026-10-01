@@ -13,7 +13,13 @@ from loguru import logger
 from qqbotsdk import EventEmitter, main
 from qqbotsdk.api import BotApi, button, keyboard
 from qqbotsdk.events import Event
-from qqbotsdk.payloads import C2CMessage, GroupAddRobot, GroupAtMessage, Interaction
+from qqbotsdk.payloads import (
+    C2CMessage,
+    FriendAdd,
+    GroupAddRobot,
+    GroupAtMessage,
+    Interaction,
+)
 
 ee = EventEmitter()
 
@@ -98,8 +104,8 @@ async def on_c2c_message(msg: C2CMessage, api: BotApi) -> None:
 
 
 @ee.on("FRIEND_ADD")
-async def on_friend_add(d: dict) -> None:
-    logger.info(f"新增用户：{d.get('user_openid')}")
+async def on_friend_add(added: FriendAdd) -> None:
+    logger.info(f"新增用户：{added.openid}")
 
 
 if __name__ == "__main__":
