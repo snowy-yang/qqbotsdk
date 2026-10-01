@@ -25,6 +25,7 @@
 
 ### 变更
 
+- **Python 基线降至 3.12**：`requires-python = ">=3.12"`（PEP 695 `type` 语句、`typing.override` 等既有写法本就 3.12 可用，代码无需改动）；ruff/pyright 目标版本同步 py312；CI 改为 3.12/3.13 双版本矩阵并补 `ruff format --check` 格式检查
 - **移除 dishka 依赖，改为内置参数注入**：handler 形参直接标注组件类型（`api: BotApi`）即注入，不再需要 `Inject[T]` 包装；组件改在 `run_loop` 显式装配并按类型登记到 `emitter.services`（自定义组件同样登记即可注入）。破坏性变更：`Inject`、`make_container`、`use_container` 随之移除，原 `api: Inject[BotApi]` 写法改为 `api: BotApi`
 - `EventEmitter` 的 `queue` 参数改为可选：不传自动创建队列，`EventEmitter()` 即可直接注册 handler；需多处共享队列时仍可显式传 `EventQueue`（`ee.queue` 取实例）。文档与示例统一改为无参构造
 - **`api.py` 拆分为 `api/` 包**：`core.py` 请求内核（鉴权/限流重试/错误归一）+ `v2.py`（群/单聊与按钮构造）、`channel.py`（频道消息）、`guild.py`（频道管理与查询）三个域方法集组合成 `BotApi`；方法名与导入路径不变（`from qqbotsdk.api import BotApi, button, keyboard` 照旧），新增域加模块即可

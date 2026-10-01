@@ -21,7 +21,7 @@ uv add git+https://gitea.4i.hk/hhhge/qqbotsdk          # 或 Gitea 镜像
 uv add /path/to/qqbotsdk                               # 本地路径安装
 ```
 
-要求 Python ≥ 3.13。
+要求 Python ≥ 3.12。
 
 ## 配置
 

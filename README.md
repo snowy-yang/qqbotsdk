@@ -1,6 +1,6 @@
 # qqbotsdk
 
-QQ 官方机器人 Python SDK（Python 3.13 / asyncio / aiohttp），支持 WebSocket 与 Webhook 两种接入方式。
+QQ 官方机器人 Python SDK（Python 3.12+ / asyncio / aiohttp），支持 WebSocket 与 Webhook 两种接入方式。
 
 **📖 在线文档：<https://qqbotsdk.4i.hk/>**
 
