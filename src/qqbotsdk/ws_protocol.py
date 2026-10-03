@@ -50,6 +50,23 @@ def get_intents(path: str) -> int:
     return intents
 
 
+_KNOWN_INTENTS_MASK = sum(intent.value for intent in Intent)
+
+
+def resolve_intents(config: Config) -> int:
+    """掩码优先于 intents.toml：Config.intents（Bot 参数或 INTENTS 环境变量）
+    已给则原样下发并校验未知位，未给才回落文件。"""
+    if config.intents is None:
+        return get_intents(config.intents_file)
+    unknown = config.intents & ~_KNOWN_INTENTS_MASK
+    if unknown:
+        # 平台可能新增 SDK 尚未收录的分组，未知位只告警不拦截
+        logger.warning(
+            f"intents 掩码含未知位 {unknown:#x}（当前 Intent 枚举未收录），将原样下发"
+        )
+    return config.intents
+
+
 class WebsocketProtocol(BaseProtocol):
     def __init__(self, config: Config, session: Session, token: AccessToken) -> None:
         self._config = config
@@ -87,7 +104,7 @@ class WebsocketProtocol(BaseProtocol):
             op = Opcode.IDENTIFY
             d = {
                 "token": f"QQBot {access_token}",
-                "intents": get_intents(self._config.intents_file),
+                "intents": resolve_intents(self._config),
                 "shard": (0, 1),
                 "properties": {},
             }

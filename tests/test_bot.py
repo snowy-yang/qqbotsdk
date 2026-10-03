@@ -10,11 +10,14 @@ from qqbotsdk import (
     Config,
     EventEmitter,
     EventQueue,
+    Intent,
     Session,
     WebhookConnecter,
     WebsocketConnecter,
 )
 from qqbotsdk.payloads import GroupAtMessage
+
+intent_mask = (1 << 25) | (1 << 26)
 
 
 @pytest.fixture
@@ -27,6 +30,24 @@ def test_construction_loads_config(env: None) -> None:
     bot = Bot()
     assert bot.config.app_id == "102000000"
     assert bot.config.connecter == "websocket"
+
+
+def test_intents_param_overrides_env(
+    env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTENTS", str(1 << 0))
+    bot = Bot(intents=intent_mask)
+    assert bot.config.intents == intent_mask  # Bot 参数 > INTENTS 环境变量
+
+
+def test_intents_env_picked_up(env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INTENTS", str(intent_mask))
+    assert Bot().config.intents == intent_mask
+
+
+def test_intents_accepts_intent_flag(env: None) -> None:
+    bot = Bot(intents=Intent.GROUP_AND_C2C_EVENT | Intent.INTERACTION)
+    assert bot.config.intents == (1 << 25) | (1 << 26)
 
 
 def test_missing_credentials_raises(monkeypatch: pytest.MonkeyPatch) -> None:

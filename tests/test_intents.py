@@ -1,7 +1,7 @@
 import pytest
 
 from qqbotsdk.config import Config
-from qqbotsdk.ws_protocol import get_intents
+from qqbotsdk.ws_protocol import get_intents, resolve_intents
 
 
 @pytest.fixture(autouse=True)
@@ -74,3 +74,52 @@ def test_config_rejects_unknown_connecter(monkeypatch):
     monkeypatch.setenv("CONNECTER", "carrier-pigeon")
     with pytest.raises(ValueError, match="carrier-pigeon"):
         Config.load()
+
+
+# --- 掩码直传：Config.intents（INTENTS 环境变量 / Bot 参数）优先于 intents.toml ---
+
+
+def test_config_intents_env_decimal(monkeypatch):
+    monkeypatch.setenv("INTENTS", str((1 << 25) | (1 << 26)))
+    assert Config.load().intents == (1 << 25) | (1 << 26)
+
+
+def test_config_intents_env_hex(monkeypatch):
+    monkeypatch.setenv("INTENTS", "0x4000000")
+    assert Config.load().intents == 1 << 26
+
+
+def test_config_intents_env_invalid(monkeypatch):
+    monkeypatch.setenv("INTENTS", "abc")
+    with pytest.raises(ValueError, match="INTENTS"):
+        Config.load()
+
+
+def make_config(intents: int | None, path: str) -> Config:
+    return Config(
+        app_id="app",
+        app_secret="secret",
+        base_url="https://api.bot.qq.com",
+        timeout=None,  # type: ignore[arg-type]
+        connecter="websocket",
+        intents_file=path,
+        webhook_host="0.0.0.0",
+        webhook_port=8080,
+        webhook_path="/x",
+        intents=intents,
+    )
+
+
+def test_resolve_intents_mask_wins_over_file(tmp_path):
+    path = write(tmp_path, "GUILDS = true\n")
+    assert resolve_intents(make_config(1 << 26, path)) == 1 << 26
+
+
+def test_resolve_intents_falls_back_to_file(tmp_path):
+    path = write(tmp_path, "GUILDS = true\nAUDIO_ACTION = true\n")
+    assert resolve_intents(make_config(None, path)) == (1 << 0) | (1 << 29)
+
+
+def test_resolve_intents_unknown_bits_pass_through(tmp_path):
+    mask = (1 << 26) | (1 << 5)  # 1<<5 未收录进 Intent 枚举
+    assert resolve_intents(make_config(mask, str(tmp_path / "nope.toml"))) == mask

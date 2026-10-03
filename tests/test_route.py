@@ -17,7 +17,9 @@ class FakeToken:
         return "tok"
 
 
-def make_protocol(session: Session | None = None) -> tuple[WebsocketProtocol, Session]:
+def make_protocol(
+    session: Session | None = None, intents: int | None = None
+) -> tuple[WebsocketProtocol, Session]:
     session = session or Session()
     config = Config(
         app_id="app",
@@ -29,6 +31,7 @@ def make_protocol(session: Session | None = None) -> tuple[WebsocketProtocol, Se
         webhook_host="0.0.0.0",
         webhook_port=8080,
         webhook_path="/x",
+        intents=intents,
     )
     return WebsocketProtocol(config, session, FakeToken()), session  # type: ignore[arg-type]
 
@@ -43,6 +46,16 @@ async def test_hello_without_session_identifies():
     assert reply["op"] == Opcode.IDENTIFY
     assert reply["d"]["token"] == "QQBot tok"
     assert reply["d"]["shard"] == (0, 1)
+
+
+@pytest.mark.asyncio
+async def test_identify_carries_intents_mask():
+    mask = (1 << 25) | (1 << 26)
+    protocol, _ = make_protocol(intents=mask)
+    reply = await protocol.on_frame({"op": Opcode.HELLO, "d": {}})
+    assert reply is not None
+    assert reply["op"] == Opcode.IDENTIFY
+    assert reply["d"]["intents"] == mask
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@
 from qqbotsdk import (
     Bot,                     # 门面：on/run/start/call_api/api/services
     EventEmitter, EventQueue,   # 分发层
+    Intent,                  # 订阅分组位掩码（IntFlag，可 OR 出掩码传 Bot(intents=…)）
     BaseProtocol,            # 协议处理器接口（自定义接入方式时继承）
     Config, Connecter,       # 配置与连接器接口
 )
@@ -44,7 +45,7 @@ bot.run()                          # 同步入口：阻塞运行，Ctrl+C 优雅
 
 | 成员 | 说明 |
 |---|---|
-| `Bot(config=None)` | 不传 config 时 `Config.load()` 读环境变量；缺 `APPID`/`APPSECRET` 构造即抛 `ValueError` |
+| `Bot(config=None, *, intents=None)` | 不传 config 时 `Config.load()` 读环境变量；缺 `APPID`/`APPSECRET` 构造即抛 `ValueError`。`intents` 直传订阅掩码（可用 `Intent` 枚举 OR 出来），优先级 `intents` 参数 > `INTENTS` 环境变量 > intents.toml，详见[配置与订阅](/docs/guide/config.md#掩码直传) |
 | `bot.on(event, fn=None, *, background=False)` | 注册 handler；`event` 为事件 `t` 名或 `Opcode`，装饰器/直传皆可 |
 | `bot.run()` | 同步入口：`asyncio.run(start())`，`KeyboardInterrupt` 记日志退出 |
 | `await bot.start()` | 异步入口：装配组件并常驻运行，供嵌入外部 asyncio 应用 |

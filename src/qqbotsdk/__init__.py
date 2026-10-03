@@ -13,6 +13,7 @@ from .config import Config as Config
 from .connecter import Connecter as Connecter
 from .connecter import WebhookConnecter, WebsocketConnecter
 from .emitter import EventEmitter as EventEmitter
+from .model import Intent as Intent
 from .protocol import BaseProtocol as BaseProtocol
 from .queue import EventQueue as EventQueue
 from .session import Session as Session
@@ -31,6 +32,7 @@ __all__ = [
     "Connecter",
     "EventEmitter",
     "EventQueue",
+    "Intent",
     "Session",
     "WebhookConnecter",
     "WebhookProtocol",

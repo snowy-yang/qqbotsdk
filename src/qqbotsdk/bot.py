@@ -8,6 +8,7 @@ start() 的装配里，handler 经形参标注拿所需组件（含 Bot 自身�
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, overload
 
 from aiohttp import ClientSession
@@ -26,8 +27,13 @@ from .ws_protocol import WebsocketProtocol
 
 
 class Bot:
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(
+        self, config: Config | None = None, *, intents: int | None = None
+    ) -> None:
         self._config = config if config is not None else Config.load()
+        # 掩码直传（可用 Intent 枚举 OR 出来），优先级高于 INTENTS 环境变量与 intents.toml
+        if intents is not None:
+            self._config = replace(self._config, intents=intents)
         self._emitter = EventEmitter()
         self._http: ClientSession | None = None
         self._api: BotApi | None = None

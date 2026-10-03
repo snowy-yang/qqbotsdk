@@ -14,6 +14,7 @@ CONNECTER=websocket               # websocket 或 webhook，默认 websocket
 BASE_URL=https://api.bot.qq.com   # 可选，官方 API 地址
 TIMEOUT=5000                      # 可选，HTTP 请求超时（毫秒）
 INTENTS_FILE=intents.toml         # 可选，事件订阅配置文件路径
+INTENTS=                          # 可选，订阅掩码直传（十进制或 0x 十六进制），优先于 intents.toml
 
 WEBHOOK_HOST=0.0.0.0              # 以下仅 webhook 接入时生效
 WEBHOOK_PORT=8080
@@ -28,6 +29,7 @@ WEBHOOK_PATH=/qqbot/webhook
 | `base_url` | `BASE_URL` | `https://api.bot.qq.com` | 官方 API 根地址 |
 | `timeout` | `TIMEOUT` | `5000`（毫秒） | 转为 aiohttp `ClientTimeout(total=…)` |
 | `intents_file` | `INTENTS_FILE` | `intents.toml` | 事件订阅配置路径 |
+| `intents` | `INTENTS` | 空 | 订阅掩码直传，见[掩码直传](#掩码直传) |
 | `webhook_host` | `WEBHOOK_HOST` | `0.0.0.0` | webhook 监听地址 |
 | `webhook_port` | `WEBHOOK_PORT` | `8080` | webhook 监听端口 |
 | `webhook_path` | `WEBHOOK_PATH` | `/qqbot/webhook` | webhook 回调路径 |
@@ -61,6 +63,24 @@ QQ 网关只认分组位掩码，**组内单个事件无法单独开关**——�
 | `PUBLIC_GUILD_MESSAGES` | 1 << 30 | 频道公域消息（AT_MESSAGE_CREATE） |
 
 分组名即 `Intent` 枚举成员名。配置只接受 `分组名 = true/false`；拼错的分组名、非布尔值，以及旧版"表内逐事件开关"的写法都会在启动时直接抛 `ValueError`（与其静默少订阅，不如启动即报错）。文件缺失则告警并按不订阅任何事件启动。
+
+## 掩码直传
+
+不想用配置文件的，可以直接传订阅掩码，三种入口按优先级取先命中者：
+
+1. **`Bot` 参数**（推荐写法，`Intent` 是 `IntFlag` 可直接 OR）：
+
+   ```python
+   from qqbotsdk import Bot, Intent
+
+   bot = Bot(intents=Intent.GROUP_AND_C2C_EVENT | Intent.INTERACTION)
+   ```
+
+2. **`INTENTS` 环境变量**：十进制或 `0x` 十六进制字符串，如 `INTENTS=1073741824` 或 `INTENTS=0x40000000`；
+
+3. 都没给才回落 `intents.toml`。
+
+掩码原样下发给网关，含 `Intent` 枚举未收录的位时仅告警不拦截（平台可能新增 SDK 尚未收录的分组）。`Intent` 从包顶层导出（`from qqbotsdk import Intent`），各位值见上面的分组表。
 
 ## 接入方式选择
 

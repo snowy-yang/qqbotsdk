@@ -26,6 +26,7 @@ class Config:
     webhook_host: str
     webhook_port: int
     webhook_path: str
+    intents: int | None = None
 
     @classmethod
     def load(cls) -> "Config":
@@ -34,6 +35,16 @@ class Config:
             raise ValueError(f"未知的接入方式: {connecter}")
         # TIMEOUT 以毫秒配置
         timeout = float(os.getenv("TIMEOUT", "5000")) / 1000
+        intents_raw = os.getenv("INTENTS", "")
+        if intents_raw:
+            try:
+                intents = int(intents_raw, 0)  # 十进制或 0x 十六进制
+            except ValueError:
+                raise ValueError(
+                    f"INTENTS 应为十进制或 0x 十六进制掩码，实际: {intents_raw!r}"
+                ) from None
+        else:
+            intents = None
         return cls(
             app_id=_required_env("APPID"),
             app_secret=_required_env("APPSECRET"),
@@ -44,4 +55,5 @@ class Config:
             webhook_host=os.getenv("WEBHOOK_HOST", "0.0.0.0"),
             webhook_port=int(os.getenv("WEBHOOK_PORT", "8080")),
             webhook_path=os.getenv("WEBHOOK_PATH", "/qqbot/webhook"),
+            intents=intents,
         )
