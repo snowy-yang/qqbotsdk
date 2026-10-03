@@ -1,5 +1,5 @@
 [project]
-name = "qqbotsdk"
+name = "qqbotsdk-py"
 version = "0.1.0"
 description = "QQ 官方机器人 Python SDK（WebSocket / Webhook）"
 license = "MIT"
@@ -39,6 +39,9 @@ qqbotsdk = "qqbotsdk:main"
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "qqbotsdk"
 
 [dependency-groups]
 dev = ["pyright>=1.1.411", "pytest>=8.3.0", "pytest-asyncio>=0.24.0", "ruff>=0.16.5"]
