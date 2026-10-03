@@ -1,0 +1,31 @@
+name: 发布到 PyPI
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    name: 构建并发布
+    runs-on: ubuntu-latest
+    permissions:
+      # Trusted Publishing（OIDC）需要显式声明 id-token 写权限
+      id-token: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: 构建 sdist 与 wheel
+        run: uv build
+
+      # 走 Trusted Publishing：无 token，发布身份由 GitHub OIDC 签发。
+      # 前置条件（一次性）：pypi.org → qqbotsdk-py → Publishing →
+      # Add pending publisher（owner: snowy-yang，repo: qqbotsdk，
+      # workflow: publish.yml）
+      - name: 发布
+        run: uv publish
