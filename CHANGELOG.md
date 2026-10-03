@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-03
+
+### 修复
+
+- **群成员禁言对齐官方请求结构**：`POST /v2/groups/{group_openid}/restrict_chat_setting` 的请求体实为 `{"members": [{"op": "add"/"update"/"del", "member_openid": …, "mute_expire_at": RFC3339}]}`（单次最多 20 人、最长 30 天、仅可操作普通成员、需群管理员身份、60 QPM），0.2.0 误发顶层 `{"mute_expire_at": …}` 且签名无法指定被禁成员。签名变更：`mute_group_member(group_openid, member_openid, mute_expire_at)`（op=add 单人禁言）；新增 `mute_group_members(group_openid, members)` 批量透传与 `unmute_group_member(group_openid, member_openid)`（op=del 解禁，解禁不再走"传过去时间"）、`MUTE_OP_ADD`/`MUTE_OP_UPDATE`/`MUTE_OP_DEL` 常量
+
 ## [0.2.0] - 2026-10-03
 
 ### 新增
