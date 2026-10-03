@@ -5,8 +5,11 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-03
+
 ### 新增
 
+- **intents 掩码直传**：`Bot(intents=…)` 参数（推荐用顶层导出的 `Intent` 枚举 OR 出掩码）与 `INTENTS` 环境变量（十进制/0x 十六进制），优先级 Bot 参数 > 环境变量 > intents.toml；掩码含未收录位仅告警不拦截
 - **`Bot` 门面类（新启动方式）**：`bot = Bot()` 构造即读 .env 校验配置，`@bot.on(...)` 注册 handler，`bot.run()` 同步启动；`await bot.start()` 供嵌入外部 asyncio 应用。`bot.call_api(method, path, **kwargs)` 通用 REST 入口（带鉴权/429 重试/401 自愈），`bot.api` 为类型化 API 面，`bot.services` 登记自定义组件；handler 可标注 `bot: Bot` 注入实例
 - **CI 与发布**：CI 新增构建 job（`uv build` 产出 sdist/wheel 冒烟）；新增 `publish.yml`——打 `v*` 标签自动构建并经 Trusted Publishing（OIDC，无需 token）发布到 PyPI
 - **文档模块化重构**：`docs/GUIDE.md`/`docs/API.md` 拆为 `docs/guide/` 五页（start/config/handlers/messaging/ops）与 `docs/api/` 七页（core/v2/group/guild/panel/audio-forum/events），侧边栏分组折叠，旧链接经 docsify alias 映射；安装指引改为 `pip install qqbotsdk-py`，README 重写为快速开始入口并加 CI/PyPI 徽章
@@ -81,4 +84,6 @@
 - **文档**：使用指南、API 参考、架构说明与可运行示例（`examples/`）
 - **测试**：纯逻辑单测 + 假网关 WebSocket 端到端 + Webhook 验签/去重端到端
 
+[Unreleased]: https://github.com/snowy-yang/qqbotsdk/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v0.2.0
 [0.1.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v0.1.0
