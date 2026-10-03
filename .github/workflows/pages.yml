@@ -1,0 +1,57 @@
+name: 部署文档（GitHub Pages）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "_sidebar.md"
+      - "README.md"
+      - "docs/**"
+      - "examples/**"
+      - "CHANGELOG.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: 组装纯文档并部署
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 站点是零构建的 docsify 静态文件：从仓库挑出文档相关文件组装后直接部署。
+      # CNAME 必须随每次部署带上，否则 Actions 部署会把自定义域名设置抹掉。
+      - name: 组装纯文档站点
+        run: |
+          rm -rf site && mkdir site
+          cp index.html README.md _sidebar.md CHANGELOG.md site/
+          cp -r docs examples site/
+          cp .nojekyll site/ 2>/dev/null || true
+          echo "qqbotsdk.4i.hk" > site/CNAME
+          find site -type d -name __pycache__ -exec rm -rf {} +
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传站点产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4

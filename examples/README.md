@@ -22,4 +22,4 @@ uv run python examples/webhook_bot/main.py
 
 Webhook 示例启动后，把 `https://<你的域名>:<端口>/qqbot/webhook` 填到开放平台回调地址；保存时平台先发 op=13 验证请求，SDK 自动完成签名应答。
 
-接入方式切换与 handler 写法详见 [使用指南](docs/GUIDE.md#接入方式选择)。
+接入方式切换见[配置与订阅](../docs/guide/config.md#接入方式选择)，handler 写法见[事件处理](../docs/guide/handlers.md)。

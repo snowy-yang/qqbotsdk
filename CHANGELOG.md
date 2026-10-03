@@ -7,6 +7,10 @@
 
 ### 新增
 
+- **`Bot` 门面类（新启动方式）**：`bot = Bot()` 构造即读 .env 校验配置，`@bot.on(...)` 注册 handler，`bot.run()` 同步启动；`await bot.start()` 供嵌入外部 asyncio 应用。`bot.call_api(method, path, **kwargs)` 通用 REST 入口（带鉴权/429 重试/401 自愈），`bot.api` 为类型化 API 面，`bot.services` 登记自定义组件；handler 可标注 `bot: Bot` 注入实例
+- **CI 与发布**：CI 新增构建 job（`uv build` 产出 sdist/wheel 冒烟）；新增 `publish.yml`——打 `v*` 标签自动构建并经 Trusted Publishing（OIDC，无需 token）发布到 PyPI
+- **文档模块化重构**：`docs/GUIDE.md`/`docs/API.md` 拆为 `docs/guide/` 五页（start/config/handlers/messaging/ops）与 `docs/api/` 七页（core/v2/group/guild/panel/audio-forum/events），侧边栏分组折叠，旧链接经 docsify alias 映射；安装指引改为 `pip install qqbotsdk-py`，README 重写为快速开始入口并加 CI/PyPI 徽章
+- **文档站迁移 GitHub Pages（Actions 部署）**：不再同步 `docs` 孤儿分支（已删除），`pages.yml` 组装纯文档产物经 `deploy-pages` 直部署；弃用 Cloudflare Pages 托管，自定义域名 qqbotsdk.4i.hk 改由 CNAME 指向 GitHub Pages
 - **旧版（频道侧）OpenAPI 对齐（对照旧版 wiki 全集核对）**：私信（`create_dms` 建会话、`post_dms_message` 发信、`withdraw_dms_message` 撤回）；身份组增删改与成员授予/收回；频道成员列表/踢出（可拉黑+撤回历史消息）/身份组成员列表/子频道在线成员数；全员与批量成员禁言；子频道用户/身份组权限查改；频道消息频率设置；接口权限列表与授权链接申请；新增 `audio` 域（播放控制、上/下麦）与 `forum` 域（帖子列表/详情/发帖/删帖）组合进 `BotApi`（`AUDIO_STATUS_*`、`FORUM_FORMAT_*` 常量随模块导出）
 - **事件全量对齐**：新增 `GROUP_MEMBER_ADD`/`GROUP_MEMBER_REMOVE`（共用 `GroupMemberChange`）、`GROUP_JOIN_REQUEST`（入群申请，含验证问答与自动审批命中信息，仅机器人是群管理员时推送）、`SUBSCRIBE_MESSAGE_STATUS`（订阅消息授权状态）四个 payload；`Intent` 枚举与 intents.toml 补上此前缺失的 `GROUP_MEMBER_EVENT (1<<24)` 分组（默认 false，需订阅请手动开启）
 - **v2 OpenAPI 全量对齐（对照官方 2026-09 新版文档站逐页核对）**：新增 `group` 域方法集组合进 `BotApi`——群信息/成员列表/成员详情/机器人群内状态、入群申请列表与审批、群黑名单增删查、群成员批量移除、群禁言状态查询、入群自动审批策略（增删改查/执行/白名单，机器人维度全局配置）
@@ -47,6 +51,7 @@
 
 ### 移除
 
+- **`main()` / `run_loop()` 与 `qqbotsdk` 控制台脚本入口**（破坏性变更）：启动方式统一为 `Bot` 门面——原 `ee = EventEmitter()` + `main(ee)` 改为 `bot = Bot()` + `@bot.on(...)` + `bot.run()`；原 `await run_loop(ee)` 嵌入场景改用 `await bot.start()`。pyproject 的 `[project.scripts]` 随之删除
 - **`Event` 的字段名映射属性 `user_id`/`group_id`/`content`/`message_id`**（含旧版群消息 payload 顶层 `from_user_id` 字段的回退）：`Event` 收敛为推送信封封装，只保留 `.raw`/`.data`/`.typed`/`.type`/`.event_id`；事件体字段一律标注 payload dataclass（如 `msg: GroupAtMessage`）获取解析结果，或经 `.data`/`.raw` 自取。破坏性变更：原 `event.group_id` 改为 typed payload 的 `msg.group_openid`，`event.message_id` 改为 `msg.id`，以此类推
 - `EventEmitter.register_protocol()`、`EventEmitter.handle()` 与 `emitter` 持有协议层的机制（协议处理器改为由 connecter 持有并逐帧调用，见上文"变更"）
 - apscheduler 依赖（心跳迁入 connecter 后不再需要调度器）
@@ -76,4 +81,4 @@
 - **文档**：使用指南、API 参考、架构说明与可运行示例（`examples/`）
 - **测试**：纯逻辑单测 + 假网关 WebSocket 端到端 + Webhook 验签/去重端到端
 
-[0.1.0]: https://gitea.4i.hk/hhhge/qqbotsdk/releases/tag/v0.1.0
+[0.1.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v0.1.0

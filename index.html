@@ -28,6 +28,8 @@
       // 相对链接按当前页面所在目录解析（与 GitHub 行为一致），docs/*.md 的互链才能正确跳转
       relativePath: true,
       loadSidebar: true,
+      // 侧边栏分组（"使用指南"/"API 参考"）默认展开一级
+      sidebarDisplayLevel: 1,
       subMaxLevel: 3,
       auto2top: true,
       themeColor: '#0f8bff',
@@ -55,6 +57,9 @@
         // 缺失文件回退 index.html 且状态 200，docsify 误当作侧栏解析导致目录空白
         '/docs/_sidebar.md': '/_sidebar.md',
         '/examples/_sidebar.md': '/_sidebar.md',
+        // 文档模块化重构（GUIDE/API 拆为 guide/ 与 api/ 多页）后的旧链接映射
+        '/docs/GUIDE.md': '/docs/guide/start.md',
+        '/docs/API.md': '/docs/api/core.md',
       },
       plugins: [
         // 把 ```mermaid 代码块替换为 div 后交给 mermaid 渲染（架构图/时序图）
@@ -77,6 +82,8 @@
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <!-- 侧边栏分组折叠（需在 docsify 之后引入） -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify-sidebar-collapse@1.3.5/dist/docsify-sidebar-collapse.min.js"></script>
   <!-- prism 语言包需在 docsify 之后引入（docsify 会重建 window.Prism，先加载会被覆盖） -->
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-toml.min.js"></script>
