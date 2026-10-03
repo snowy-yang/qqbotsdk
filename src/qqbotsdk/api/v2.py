@@ -28,6 +28,10 @@ STREAM_GENERATING = 1  # input_state：生成中
 STREAM_FINISHED = 10  # input_state：生成结束
 STREAM_CONTENT_TEXT = "text"
 STREAM_CONTENT_MARKDOWN = "markdown"
+# 群禁言 members[].op 取值（restrict_chat_setting）
+MUTE_OP_ADD = "add"
+MUTE_OP_UPDATE = "update"
+MUTE_OP_DEL = "del"
 
 
 def button(
@@ -384,15 +388,41 @@ class V2Api(BaseApi):
         """撤回单聊消息（DELETE /v2/users/{openid}/messages/{message_id}）。"""
         return await self._withdraw_v2_message(f"/v2/users/{openid}", message_id)
 
-    async def mute_group_member(self, group_openid: str, mute_expire_at: str) -> dict:
-        """群成员禁言（POST /v2/groups/{group_openid}/restrict_chat_setting）。
+    async def mute_group_members(
+        self, group_openid: str, members: list[dict[str, Any]]
+    ) -> dict:
+        """批量设置群成员禁言/解禁（POST .../restrict_chat_setting）。
 
-        mute_expire_at 为禁言到期时间（RFC3339 格式，如
-        "2026-01-01T12:00:00+08:00"）；传当前时间之前即解除禁言。
+        members 单次最多 20 项，每项为 {"op": MUTE_OP_ADD/MUTE_OP_UPDATE/
+        MUTE_OP_DEL, "member_openid": ..., "mute_expire_at": RFC3339 时间}：
+        add 新增禁言、update 更新到期时间、del 解除禁言（expire 可传
+        空串）。最长禁言 30 天；仅可操作普通成员（群主/管理员/机器人
+        不可）；需群管理员身份，60 QPM。
         """
         return await self.post(
             f"/v2/groups/{group_openid}/restrict_chat_setting",
-            json={"mute_expire_at": mute_expire_at},
+            json={"members": members},
+        )
+
+    async def mute_group_member(
+        self, group_openid: str, member_openid: str, mute_expire_at: str
+    ) -> dict:
+        """禁言单个群成员（mute_group_members 的 op=add 封装）。"""
+        return await self.mute_group_members(
+            group_openid,
+            [
+                {
+                    "op": MUTE_OP_ADD,
+                    "member_openid": member_openid,
+                    "mute_expire_at": mute_expire_at,
+                }
+            ],
+        )
+
+    async def unmute_group_member(self, group_openid: str, member_openid: str) -> dict:
+        """解除单个群成员禁言（mute_group_members 的 op=del 封装）。"""
+        return await self.mute_group_members(
+            group_openid, [{"op": MUTE_OP_DEL, "member_openid": member_openid}]
         )
 
     async def generate_url_link(self, callback_data: str | None = None) -> dict:

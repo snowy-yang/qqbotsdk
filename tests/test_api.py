@@ -116,10 +116,28 @@ async def test_mute_and_schedule_official_field_names():
     assert info["remind_type"] == "0"
     assert "schedule_info" not in kwargs["json"]
 
-    await api.mute_group_member("G1", "2026-01-01T12:00:00+08:00")
+    await api.mute_group_member("G1", "M1", "2026-01-01T12:00:00+08:00")
     method, path, kwargs = cap["call"]
     assert (method, path) == ("POST", "/v2/groups/G1/restrict_chat_setting")
-    assert kwargs["json"] == {"mute_expire_at": "2026-01-01T12:00:00+08:00"}
+    assert kwargs["json"] == {
+        "members": [
+            {
+                "op": "add",
+                "member_openid": "M1",
+                "mute_expire_at": "2026-01-01T12:00:00+08:00",
+            }
+        ]
+    }
+
+    await api.unmute_group_member("G1", "M1")
+    assert cap["call"][2]["json"] == {"members": [{"op": "del", "member_openid": "M1"}]}
+
+    members = [
+        {"op": "add", "member_openid": "M1", "mute_expire_at": "t1"},
+        {"op": "update", "member_openid": "M2", "mute_expire_at": "t2"},
+    ]
+    await api.mute_group_members("G1", members)
+    assert cap["call"][2]["json"] == {"members": members}
 
 
 async def test_me():
