@@ -10,7 +10,7 @@
 
 from loguru import logger
 
-from qqbotsdk import EventEmitter, main
+from qqbotsdk import Bot
 from qqbotsdk.api import BotApi, button, keyboard
 from qqbotsdk.events import Event
 from qqbotsdk.payloads import (
@@ -21,12 +21,22 @@ from qqbotsdk.payloads import (
     Interaction,
 )
 
-ee = EventEmitter()
+bot = Bot()
 
 
-@ee.on("GROUP_AT_MESSAGE_CREATE")
-async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
+@bot.on("GROUP_AT_MESSAGE_CREATE")
+async def on_group_message(msg: GroupAtMessage, api: BotApi, bot: Bot) -> None:
     if not (msg.group_openid and msg.id):
+        return
+
+    # "/me"：经 bot.call_api 调通用 REST 接口（未封装接口也走这里）
+    if (msg.content or "").strip() == "/me":
+        me = await bot.call_api("GET", "/users/@me")
+        await api.post_group_message(
+            msg.group_openid,
+            content=f"我是 {me.get('username', '机器人')}",
+            msg_id=msg.id,
+        )
         return
 
     # "/img <图片url>"：上传富媒体后随消息发出（msg_type 自动置为 7）
@@ -64,7 +74,7 @@ async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
     )
 
 
-@ee.on("INTERACTION_CREATE")
+@bot.on("INTERACTION_CREATE")
 async def on_button_click(inter: Interaction, event: Event, api: BotApi) -> None:
     if inter.chat_type != 1 or not inter.group_openid:
         return  # 本示例只处理群聊的按钮回调
@@ -79,7 +89,7 @@ async def on_button_click(inter: Interaction, event: Event, api: BotApi) -> None
     )
 
 
-@ee.on("GROUP_ADD_ROBOT")
+@bot.on("GROUP_ADD_ROBOT")
 async def on_robot_added(added: GroupAddRobot, event: Event, api: BotApi) -> None:
     # 入群是事件而非消息：用信封顶层的事件 id 作 event_id 被动回复（拿不到则跳过）
     if not (added.group_openid and event.event_id):
@@ -92,7 +102,7 @@ async def on_robot_added(added: GroupAddRobot, event: Event, api: BotApi) -> Non
     )
 
 
-@ee.on("C2C_MESSAGE_CREATE")
+@bot.on("C2C_MESSAGE_CREATE")
 async def on_c2c_message(msg: C2CMessage, api: BotApi) -> None:
     user_openid = msg.user_openid
     if not (user_openid and msg.id):
@@ -103,10 +113,10 @@ async def on_c2c_message(msg: C2CMessage, api: BotApi) -> None:
     )
 
 
-@ee.on("FRIEND_ADD")
+@bot.on("FRIEND_ADD")
 async def on_friend_add(added: FriendAdd) -> None:
     logger.info(f"新增用户：{added.openid}")
 
 
 if __name__ == "__main__":
-    main(ee)
+    bot.run()

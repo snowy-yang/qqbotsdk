@@ -30,11 +30,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/snowy-yang/qqbotsdk"
+Documentation = "https://qqbotsdk.4i.hk"
 Repository = "https://github.com/snowy-yang/qqbotsdk"
 Changelog = "https://github.com/snowy-yang/qqbotsdk/blob/main/CHANGELOG.md"
-
-[project.scripts]
-qqbotsdk = "qqbotsdk:main"
 
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13.0"]

@@ -1,83 +1,39 @@
 """qqbotsdk：QQ 官方机器人 SDK 入口。
 
-用法：构造 `EventEmitter()` 注册 handler，交给 `main(ee)`
-启动；连接方式由 .env 的 CONNECTER 决定（websocket / webhook）。
+用法：`bot = Bot()` → `@bot.on(...)` 注册 handler → `bot.run()` 启动；
+连接方式由 .env 的 CONNECTER 决定（websocket / webhook）。
 架构详情见 docs/ARCHITECTURE.md。
 """
 
-import asyncio
-
-from aiohttp import ClientSession
 from dotenv import load_dotenv
-from loguru import logger
 
 from .api import BotApi
-from .config import Config
+from .bot import Bot as Bot
+from .config import Config as Config
 from .connecter import Connecter as Connecter
 from .connecter import WebhookConnecter, WebsocketConnecter
 from .emitter import EventEmitter as EventEmitter
 from .protocol import BaseProtocol as BaseProtocol
 from .queue import EventQueue as EventQueue
-from .session import Session
-from .token import AccessToken
-from .webhook_protocol import WebhookProtocol
-from .ws_protocol import WebsocketProtocol
+from .session import Session as Session
+from .token import AccessToken as AccessToken
+from .webhook_protocol import WebhookProtocol as WebhookProtocol
+from .ws_protocol import WebsocketProtocol as WebsocketProtocol
 
 load_dotenv()
 
-
-async def run_loop(emitter: EventEmitter | None = None) -> None:
-    """启动 SDK。可传入外部构造的 EventEmitter 以注册 handler；不传时自建。
-
-    全部组件在此显式装配，并按类型登记到 emitter.services 供 handler
-    参数注入；共享的 HTTP 连接池随 run_loop 结束释放。
-    """
-    if emitter is None:
-        emitter = EventEmitter()
-
-    config = Config.load()
-    http = ClientSession(timeout=config.timeout)
-    session = Session()
-    token = AccessToken(config, http)
-    api = BotApi(config, http, token)
-    emitter.services.update(
-        {
-            EventEmitter: emitter,
-            EventQueue: emitter.queue,
-            Config: config,
-            Session: session,
-            ClientSession: http,
-            AccessToken: token,
-            BotApi: api,
-        }
-    )
-
-    # 各接入方式配自己的协议处理器：协议帧由适配器就近处理，只有业务事件
-    # （op=0）入队交给 emitter 分发（见 protocol.py / connecter.py）
-    match config.connecter:
-        case "websocket":
-            protocol = WebsocketProtocol(config, session, token)
-            connecter = WebsocketConnecter(
-                config, http, token, session, emitter.queue, protocol
-            )
-        case "webhook":
-            protocol = WebhookProtocol(config)
-            connecter = WebhookConnecter(config, emitter.queue, protocol)
-        case unknown:
-            raise ValueError(f"未知的 CONNECTER: {unknown}")
-
-    logger.info(f"qqbotsdk 启动，连接方式: {config.connecter}")
-    try:
-        await asyncio.gather(emitter.dispatch(), connecter.run())
-    finally:
-        # 在飞的后台 handler 先于连接池收尾，避免用到已关闭的 ClientSession
-        await emitter.close()
-        # 全 SDK 共享一个连接池，统一在此释放
-        await http.close()
-
-
-def main(emitter: EventEmitter | None = None) -> None:
-    try:
-        asyncio.run(run_loop(emitter))
-    except KeyboardInterrupt:
-        logger.info("qqbotsdk 已退出")
+__all__ = [
+    "AccessToken",
+    "BaseProtocol",
+    "Bot",
+    "BotApi",
+    "Config",
+    "Connecter",
+    "EventEmitter",
+    "EventQueue",
+    "Session",
+    "WebhookConnecter",
+    "WebhookProtocol",
+    "WebsocketConnecter",
+    "WebsocketProtocol",
+]

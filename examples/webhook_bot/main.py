@@ -11,14 +11,14 @@
 运行：uv run python examples/webhook_bot/main.py
 """
 
-from qqbotsdk import EventEmitter, main
+from qqbotsdk import Bot
 from qqbotsdk.api import BotApi
 from qqbotsdk.payloads import GroupAtMessage
 
-ee = EventEmitter()
+bot = Bot()
 
 
-@ee.on("GROUP_AT_MESSAGE_CREATE")
+@bot.on("GROUP_AT_MESSAGE_CREATE")
 async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
     if not (msg.group_openid and msg.id):
         return
@@ -30,4 +30,4 @@ async def on_group_message(msg: GroupAtMessage, api: BotApi) -> None:
 
 
 if __name__ == "__main__":
-    main(ee)
+    bot.run()
