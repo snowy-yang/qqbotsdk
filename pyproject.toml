@@ -8,6 +8,17 @@ readme = "README.md"
 authors = [
     { name = "snowy-yang", email = "102860110+snowy-yang@users.noreply.github.com" },
 ]
+keywords = ["qq", "qqbot", "bot", "sdk", "websocket", "webhook", "机器人"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Natural Language :: Chinese (Simplified)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.14.3",
@@ -16,6 +27,11 @@ dependencies = [
     "python-dotenv>=1.2.3",
     "ujson>=6.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/snowy-yang/qqbotsdk"
+Repository = "https://github.com/snowy-yang/qqbotsdk"
+Changelog = "https://github.com/snowy-yang/qqbotsdk/blob/main/CHANGELOG.md"
 
 [project.scripts]
 qqbotsdk = "qqbotsdk:main"
