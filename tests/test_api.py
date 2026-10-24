@@ -1,8 +1,17 @@
+import hashlib
+
 import pytest
 from aiohttp import ClientSession, ClientTimeout, web
 from aiohttp.test_utils import TestServer
 
-from qqbotsdk.api import ApiError, BotApi, button, keyboard
+from qqbotsdk.api import (
+    ApiError,
+    BotApi,
+    MediaApi,
+    button,
+    keyboard,
+)
+from qqbotsdk.api.media import MEDIA_IMAGE_JPEG
 from qqbotsdk.config import Config
 from qqbotsdk.token import AccessToken
 
@@ -817,3 +826,118 @@ async def test_audio_and_forum():
 
     await api.delete_channel_thread("C1", "T1")
     assert cap["call"][:2] == ("DELETE", "/channels/C1/threads/T1")
+
+
+# ---------- 素材管理（media-images） ----------
+
+
+async def test_media_image_prepare_complete_list_delete():
+    api, cap = make_api()
+    await api.prepare_media_image("kline.png", 40156, "image/png", "d" * 32, "s" * 40)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/media-images/prepare")
+    assert kwargs["json"] == {
+        "file_name": "kline.png",
+        "file_size": 40156,
+        "content_type": "image/png",
+        "md5": "d" * 32,
+        "sha1": "s" * 40,
+    }
+
+    await api.complete_media_image("up1", "d" * 32)
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("POST", "/v2/media-images/complete")
+    assert kwargs["json"] == {"upload_id": "up1", "md5": "d" * 32}
+
+    await api.get_media_images()
+    assert cap["call"][:2] == ("GET", "/v2/media-images")
+    assert cap["call"][2].get("params") is None
+
+    await api.get_media_images(cursor="c1")
+    method, path, kwargs = cap["call"]
+    assert (method, path) == ("GET", "/v2/media-images")
+    assert kwargs["params"] == {"cursor": "c1"}
+
+    await api.delete_media_image("img1")
+    assert cap["call"][:2] == ("DELETE", "/v2/media-images/img1/delete")
+
+
+class _PutResponse:
+    def __init__(self, etag: str) -> None:
+        self.status = 200
+        self.headers = {"ETag": f'"{etag}"'}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+async def test_upload_media_image_one_shot():
+    """一步上传：prepare → PUT 预签名 URL（无鉴权头）→ complete。"""
+    data = b"\x89PNG fake image bytes"
+    md5 = hashlib.md5(data).hexdigest()
+    calls: list = []
+
+    class Recording(MediaApi):
+        async def request(self, method, path, **kwargs):  # type: ignore[override]
+            calls.append((method, path, kwargs))
+            if path == "/v2/media-images/prepare":
+                assert kwargs["json"]["file_size"] == len(data)
+                assert kwargs["json"]["md5"] == md5
+                assert kwargs["json"]["sha1"] == hashlib.sha1(data).hexdigest()
+                return {"upload_id": "up1", "presigned_url": "https://cos/presigned"}
+            return {"image_id": "i1", "url": "qqbot-media://image/v1/t", "ttl": 7776000}
+
+    api = Recording.__new__(Recording)
+
+    class Http:
+        url = ""
+        kwargs: dict = {}
+
+        def put(self, url, **kwargs):
+            Http.url, Http.kwargs = url, kwargs
+            return _PutResponse(md5)
+
+    api._http = Http()
+
+    result = await api.upload_media_image(data, "kline.jpeg", MEDIA_IMAGE_JPEG)
+
+    assert Http.url == "https://cos/presigned"
+    assert Http.kwargs["data"] == data
+    assert Http.kwargs["headers"] == {"Content-Type": "image/jpeg"}
+    assert result["image_id"] == "i1"
+    assert [(m, p) for m, p, _ in calls] == [
+        ("POST", "/v2/media-images/prepare"),
+        ("POST", "/v2/media-images/complete"),
+    ]
+    assert calls[1][2]["json"] == {"upload_id": "up1", "md5": md5}
+
+
+async def test_upload_media_image_rejects_oversize_before_any_request():
+    api, cap = make_api()
+    with pytest.raises(ValueError, match="超过上限"):
+        await api.upload_media_image(b"x" * (10 * 1024 * 1024 + 1), "big.png")
+    assert "call" not in cap  # 未发起任何请求
+
+
+async def test_upload_media_image_etag_mismatch_raises():
+    data = b"mismatch"
+    calls: list = []
+
+    class Recording(MediaApi):
+        async def request(self, method, path, **kwargs):  # type: ignore[override]
+            calls.append((method, path))
+            return {"upload_id": "up1", "presigned_url": "https://cos/presigned"}
+
+    class Http:
+        def put(self, url, **kwargs):
+            return _PutResponse("0" * 32)  # 与本地 MD5 不符
+
+    api = Recording.__new__(Recording)
+    api._http = Http()
+
+    with pytest.raises(ApiError, match="不一致"):
+        await api.upload_media_image(data, "a.png")
+    assert len(calls) == 1  # complete 不再调用

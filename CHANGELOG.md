@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **素材管理（官方 2026-10-21 新增能力对齐）**：Markdown 图片预上传平台，获得 `qqbot-media://` 引用后写入 Markdown，无需公网图床（发送时平台自动转存，图片可反复引用，90 天滑动过期，单机器人 100 张、单张 ≤10MB、仅 png/jpeg/gif/webp）。新增 `media` 域组合进 `BotApi`——`upload_media_image(data, file_name, content_type)` 一步上传（prepare → PUT 预签名 URL 直传 → complete，md5/sha1 自动计算并校验 ETag）；`prepare_media_image`/`complete_media_image` 分步透传；`get_media_images(cursor)` 分页查询与 `delete_media_image(image_id)` 释放配额；`MEDIA_IMAGE_*` 常量与 `MEDIA_IMAGE_MAX_BYTES` 随模块导出。文档新增 [docs/api/media.md](docs/api/media.md)
+
 ## [0.2.1] - 2026-10-03
 
 ### 修复

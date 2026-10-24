@@ -8,6 +8,7 @@
 - API 参考
   - [核心框架](/docs/api/core.md)
   - [群聊与单聊（v2）](/docs/api/v2.md)
+  - [素材管理](/docs/api/media.md)
   - [群管理](/docs/api/group.md)
   - [频道](/docs/api/guild.md)
   - [指令面板与菜单](/docs/api/panel.md)

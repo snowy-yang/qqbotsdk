@@ -65,6 +65,19 @@ await api.post_group_message(
 - `button(label, data, *, type=1, permission=2, style=1)`：`type` 1 回调（点击推 `INTERACTION_CREATE`）、0 跳转链接（data 为 url）、2 指令（往输入框插入 data）；`permission` 2 所有人 / 1 管理员 / 0 指定用户；`label` 官方限 10 字以内；要补嵌套字段（如 `visited_label`、`prompt`）直接修改返回的 dict。
 - 其他 body 字段可经 `**extra` 透传（如原生 `msg_type=6` 输入中状态）。
 
+**Markdown 配图**：图片可预上传为平台素材，拿 `qqbot-media://` 引用写入 Markdown，不依赖公网图床（单机器人 100 张、90 天滑动过期）：
+
+```python
+upload = await api.upload_media_image(Path("kline.png").read_bytes(), "kline.png")
+await api.post_group_message(
+    group_openid,
+    markdown=f"![分时K线 #800px #400px]({upload['url']})",
+    msg_id=msg.id,
+)
+```
+
+完整参数与配额管理见[素材管理 API](/docs/api/media.md)。
+
 **处理按钮点击**：点击回调推 `INTERACTION_CREATE` 事件，`inter.button_data` 即被点按钮的 `data`：
 
 ```python
