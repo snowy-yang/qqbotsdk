@@ -72,7 +72,7 @@ uv run python main.py
 
 ## 下一步
 
-- 两种接入方式（WebSocket / Webhook）怎么选：[配置与订阅](/docs/guide/config.md)
+- 环境变量与事件订阅：[配置与订阅](/docs/guide/config.md)
 - handler 参数注入、后台并发、自定义组件：[事件处理](/docs/guide/handlers.md)
 - 富媒体、Markdown 按钮、被动回复时限等消息规则：[收发消息](/docs/guide/messaging.md)
-- 完整示例（按钮卡片、入群欢迎、单聊、webhook）：[examples/](https://github.com/snowy-yang/qqbotsdk/tree/main/examples)
+- 完整示例（按钮卡片、入群欢迎、单聊）：[examples/](https://github.com/snowy-yang/qqbotsdk/tree/main/examples)

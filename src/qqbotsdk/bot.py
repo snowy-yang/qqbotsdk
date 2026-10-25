@@ -16,14 +16,13 @@ from loguru import logger
 
 from .api import BotApi
 from .config import Config
-from .connecter import Connecter, WebhookConnecter, WebsocketConnecter
+from .connecter import Connecter
 from .emitter import EventEmitter, Handler
 from .model import Opcode
+from .protocol import Protocol
 from .queue import EventQueue
 from .session import Session
 from .token import AccessToken
-from .webhook_protocol import WebhookProtocol
-from .ws_protocol import WebsocketProtocol
 
 
 class Bot:
@@ -37,6 +36,7 @@ class Bot:
         self._emitter = EventEmitter()
         self._http: ClientSession | None = None
         self._api: BotApi | None = None
+        self._started = False
 
     @property
     def config(self) -> Config:
@@ -108,30 +108,33 @@ class Bot:
             }
         )
 
-        # 各接入方式配自己的协议处理器：协议帧由适配器就近处理，
-        # 只有业务事件（op=0）入队交给 emitter 分发（见 protocol.py）
-        match self._config.connecter:
-            case "websocket":
-                protocol = WebsocketProtocol(self._config, session, token)
-                connecter = WebsocketConnecter(
-                    self._config, http, token, session, self._emitter.queue, protocol
-                )
-            case "webhook":
-                protocol = WebhookProtocol(self._config)
-                connecter = WebhookConnecter(
-                    self._config, self._emitter.queue, protocol
-                )
-            case unknown:
-                raise ValueError(f"未知的 CONNECTER: {unknown}")
-        return connecter
+        # 协议帧由协议处理器就近处理，只有业务事件（op=0）入队交给 emitter
+        protocol = Protocol(self._config, session, token)
+        return Connecter(
+            self._config, http, token, session, self._emitter.queue, protocol
+        )
 
     async def start(self) -> None:
         """装配并常驻运行，供嵌入外部 asyncio 应用；普通脚本直接用 run()。"""
-        connecter = self._assemble()
-        logger.info(f"qqbotsdk 启动，连接方式: {self._config.connecter}")
+        if self._started:
+            raise RuntimeError("Bot 已在运行，请勿重复调用 start()")
+        self._started = True
+        tasks: list[asyncio.Task[None]] = []
         try:
-            await asyncio.gather(self._emitter.dispatch(), connecter.run())
+            connecter = self._assemble()
+            logger.info("qqbotsdk 启动（WebSocket）")
+            tasks = [
+                asyncio.create_task(self._emitter.dispatch()),
+                asyncio.create_task(connecter.run()),
+            ]
+            await asyncio.gather(*tasks)
         finally:
+            self._started = False
+            # gather 任一任务失败不会取消兄弟任务，这里显式收尾
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
             # 在飞的后台 handler 先于连接池收尾，避免用到已关闭的 ClientSession
             await self._emitter.close()
             if self._http is not None:

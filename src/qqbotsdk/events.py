@@ -5,7 +5,7 @@
 字段），其余事件用信封顶层的 `.event_id`。
 """
 
-from typing import Any
+from typing import Any, cast
 
 from .model import Payload
 from .payloads import parse_event
@@ -27,7 +27,7 @@ class Event:
 
     @property
     def data(self) -> dict[str, Any]:
-        """d 的只读副本；仅用到 `.typed`/`.raw` 的 handler 不会触发这次拷贝。"""
+        """d 的副本（修改不影响 `.raw`）；只取 `.typed` 的 handler 不会触发拷贝。"""
         if self._d is None:
             d = self._payload.get("d")
             self._d = dict(d) if isinstance(d, dict) else {}
@@ -37,7 +37,11 @@ class Event:
     def typed(self) -> object:
         """d 的 dataclass 解析结果（见 payloads.py）；未知事件类型为 dict。"""
         if self._typed is None:
-            self._typed = parse_event(self.type, self.data)
+            d = self._payload.get("d")
+            # 解析只读，直接用原始 d，省掉 Event.data 的一次浅拷贝
+            self._typed = parse_event(
+                self.type, cast(dict[str, Any], d) if isinstance(d, dict) else {}
+            )
         return self._typed
 
     @property

@@ -1,5 +1,7 @@
 """Bot 门面：构造校验、注册转发、注入约定与装配产物。"""
 
+import asyncio
+
 import pytest
 from aiohttp import ClientSession
 
@@ -8,12 +10,11 @@ from qqbotsdk import (
     Bot,
     BotApi,
     Config,
+    Connecter,
     EventEmitter,
     EventQueue,
     Intent,
     Session,
-    WebhookConnecter,
-    WebsocketConnecter,
 )
 from qqbotsdk.payloads import GroupAtMessage
 
@@ -29,7 +30,6 @@ def env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_construction_loads_config(env: None) -> None:
     bot = Bot()
     assert bot.config.app_id == "102000000"
-    assert bot.config.connecter == "websocket"
 
 
 def test_intents_param_overrides_env(
@@ -75,12 +75,12 @@ async def test_on_registers_handler(env: None) -> None:
     assert seen == ["你好"]
 
 
-async def test_assemble_websocket_registers_all_services(
+async def test_assemble_registers_all_services(
     env: None,
 ) -> None:
     bot = Bot()
     connecter = bot._assemble()
-    assert isinstance(connecter, WebsocketConnecter)
+    assert isinstance(connecter, Connecter)
 
     services = bot.services
     assert services[Bot] is bot
@@ -93,16 +93,6 @@ async def test_assemble_websocket_registers_all_services(
     assert bot.api is services[BotApi]
 
     await bot._http.close()  # 清理装配出的连接池
-
-
-async def test_assemble_webhook_builds_webhook_connecter(
-    env: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("CONNECTER", "webhook")
-    bot = Bot()
-    connecter = bot._assemble()
-    assert isinstance(connecter, WebhookConnecter)
-    await bot._http.close()
 
 
 async def test_bot_instance_injectable_into_handler(env: None) -> None:
@@ -144,3 +134,41 @@ async def test_call_api_delegates_to_api_request(env: None) -> None:
     result = await bot.call_api("GET", "/users/@me", params={"a": "1"})
     assert result == {"ok": True}
     assert calls == [("GET", "/users/@me", {"params": {"a": "1"}})]
+
+
+async def test_start_rejects_reentry(env: None) -> None:
+    bot = Bot()
+    bot._started = True
+    with pytest.raises(RuntimeError, match="已在运行"):
+        await bot.start()
+
+
+async def test_start_cancels_dispatch_when_connecter_fails(
+    env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """连接器异常时 gather 不会自动取消 dispatch，start() 需显式收尾。"""
+    bot = Bot()
+    dispatch_started = asyncio.Event()
+    dispatch_cancelled = asyncio.Event()
+
+    async def fake_dispatch() -> None:
+        dispatch_started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            dispatch_cancelled.set()
+            raise
+
+    class BoomConnecter:
+        async def run(self) -> None:
+            await dispatch_started.wait()
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(bot._emitter, "dispatch", fake_dispatch)
+    monkeypatch.setattr(bot, "_assemble", lambda: BoomConnecter())
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await bot.start()
+
+    assert dispatch_cancelled.is_set()
+    assert bot._started is False

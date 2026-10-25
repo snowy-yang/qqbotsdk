@@ -90,11 +90,12 @@ class MediaApi(BaseApi):
             headers={"Content-Type": content_type},
         ) as resp:
             if resp.status >= 400:
+                detail = (await resp.content.read(200)).decode("utf-8", "replace")
                 raise ApiError(
                     resp.status,
                     None,
                     "图片直传失败：Content-Type 需与 prepare 声明一致，"
-                    "或预签名 URL 已过期（重新 prepare）",
+                    f"或预签名 URL 已过期（重新 prepare）；body={detail!r}",
                 )
             etag = (resp.headers.get("ETag") or "").strip('"')
             if etag and etag != md5:

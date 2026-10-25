@@ -1,7 +1,7 @@
 """群机器人示例：@消息回复、富媒体图片、按钮卡片与点击回调、入群欢迎、单聊回复。
 
 运行前提：
-1. 项目根目录 .env 配好 APPID/APPSECRET（CONNECTER 用默认 websocket）；
+1. 项目根目录 .env 配好 APPID/APPSECRET；
 2. intents.toml 订阅 GROUP_AND_C2C_EVENT 与 INTERACTION 两个分组（仓库默认已开启）；
 3. 机器人已在开放平台开通群聊能力，并被拉入测试群。
 

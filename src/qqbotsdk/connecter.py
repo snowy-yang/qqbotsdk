@@ -1,42 +1,32 @@
-"""连接适配器：把两种接入方式（WebSocket / Webhook）归一为业务事件流入、出站帧流出。
+"""连接适配器：gateway 握手 + 长连接，业务事件流入、出站帧流出。
 
-每条帧先交给本适配器注入的协议处理器（`BaseProtocol.on_frame`）处理协议语义，
-只有业务事件（op=0）才入队交给 emitter 分发给用户 handler——协议帧与业务事件
-因此不共享分发路径。
+每条帧先交给协议处理器（`Protocol.on_frame`）处理协议语义，只有业务事件
+（op=0）才入队交给 emitter 分发给用户 handler——协议帧与业务事件因此不共享
+分发路径。
 
-- WebsocketConnecter：gateway 握手 + ws 长连接，指数退避重连（连接稳定
-  存活才把退避归一，抖动的服务端不会被 1s 间隔反复探测）；心跳任务随
-  连接生灭——HELLO 给出间隔后周期投递，断线即取消，不在出站缓冲堆积
-  过期心跳；看门狗两层互补——receive 的静默超时抓"连接彻底静默"，
-  收到消息时的 ACK 期限检查抓"有事件流但心跳已死"；另外服务端约 1 小时
-  会主动断开连接，故临到期前主动重连（经 RESUME 补发消息），不等被掐断；
-- WebhookConnecter：aiohttp server 接收回调，验签失败 401，
-  按 payload id 做 60s TTL 去重，正常推送进事件队列；op=13 验证请求
-  由协议处理器就地应答（HTTP 响应不走队列）。
+连接策略：指数退避重连（连接稳定存活才把退避归一，抖动的服务端不会被 1s
+间隔反复探测）；心跳任务随连接生灭——HELLO 给出间隔后周期投递，断线即取消，
+不在出站缓冲堆积过期心跳；看门狗两层互补——receive 的静默超时抓"连接彻底
+静默"，收到消息时的 ACK 期限检查抓"有事件流但心跳已死"；HELLO 未到时另有
+握手期限，避免对端不发言时按寿命余量傻等。服务端约 1 小时会主动断开连接，
+故临到期前主动重连（经 RESUME 补发消息），不等被掐断。
 """
 
 import asyncio
 from time import monotonic
-from typing import Protocol, cast
+from typing import cast
 
 import aiohttp
 import ujson
-from aiohttp import WSMsgType, web
+from aiohttp import WSMsgType
 from loguru import logger
 
 from .config import Config
-from .crypto import verify_sig
-from .model import NOT_SET, Opcode, Payload, payload_of
-from .protocol import BaseProtocol
+from .model import Opcode, OutgoingFrame, Payload, heartbeat_frame
+from .protocol import Protocol
 from .queue import EventQueue
 from .session import Session
 from .token import AccessToken
-
-
-class Connecter(Protocol):
-    """连接适配器接口：两种接入方式都实现 `run()` 常驻运行。"""
-
-    async def run(self) -> None: ...
 
 
 class RateLimitError(RuntimeError):
@@ -66,7 +56,14 @@ class _Heartbeat:
         if op == Opcode.HELLO:
             d = data.get("d")
             if isinstance(d, dict):
-                self._interval = d.get("heartbeat_interval", 41_250) / 1000
+                raw = d.get("heartbeat_interval", 41_250)
+                if (
+                    not isinstance(raw, (int, float))
+                    or isinstance(raw, bool)
+                    or raw <= 0
+                ):
+                    raise RuntimeError(f"HELLO 的 heartbeat_interval 非法: {raw!r}")
+                self._interval = raw / 1000
                 if not self._interval_fut.done():
                     self._interval_fut.set_result(self._interval)
         elif op == Opcode.HEARTBEAT_ACK:
@@ -77,13 +74,15 @@ class _Heartbeat:
         return monotonic() - self._last_ack > self._interval * self._ack_factor
 
 
-class WebsocketConnecter(Connecter):
+class Connecter:
     # 看门狗阈值（× 心跳间隔）：贴着 ACK 的自然节奏（1×）跑，误杀由 RESUME 兜底不丢消息；
     # 不能压到 1× 整——ACK 的自然间隔就是 1×，正常抖动会贴边误杀；TCP 下丢包表现为延迟而非静默
     _SILENCE_FACTOR = 1.1
     _ACK_FACTOR = 1.2
     # 连接存活超过该时长才算稳定，才把退避归一
     _STABLE_SECONDS = 60.0
+    # HELLO 到达前的握手期限：对端不发 HELLO 时不能按寿命余量傻等
+    _HANDSHAKE_TIMEOUT = 30.0
     # 服务端约 1 小时后会主动断开连接（无预警，实测）：临到期前留出余量主动重连，
     # 这样是正常收尾 + RESUME 补发消息，而不是被掐断后由看门狗判成异常
     _SERVER_LIFETIME = 60 * 60.0
@@ -96,7 +95,7 @@ class WebsocketConnecter(Connecter):
         token: AccessToken,
         session: Session,
         queue: EventQueue,
-        protocol: BaseProtocol,
+        protocol: Protocol,
     ) -> None:
         self._config = config
         self._http = http
@@ -106,7 +105,7 @@ class WebsocketConnecter(Connecter):
         self._protocol = protocol
         # 出站帧缓冲（心跳 + 协议应答）：由 send_helper 单任务发送，
         # 维持 aiohttp ws 单写者不变量，生产者（心跳）也不会被发送阻塞
-        self._outbound: asyncio.Queue[Payload] = asyncio.Queue()
+        self._outbound: asyncio.Queue[OutgoingFrame] = asyncio.Queue()
 
     async def run(self) -> None:
         """重连主循环。
@@ -130,7 +129,7 @@ class WebsocketConnecter(Connecter):
                 delay = backoff = 60
                 continue
             except TimeoutError:
-                logger.warning("心跳超时，触发看门狗重连")
+                logger.warning("连接超时（握手或心跳），触发看门狗重连")
                 lived = 0.0
             except (aiohttp.ClientError, RuntimeError) as e:
                 logger.warning(f"WebSocket 连接异常: {e}")
@@ -155,12 +154,21 @@ class WebsocketConnecter(Connecter):
         async with self._http.get(
             f"{self._config.base_url}/gateway", headers=headers
         ) as resp:
-            data = await resp.json(loads=ujson.loads)
+            status = resp.status
+            try:
+                data = await resp.json(loads=ujson.loads, content_type=None)
+            except ValueError as e:
+                body = (await resp.read())[:200].decode("utf-8", "replace")
+                raise RuntimeError(
+                    f"获取 gateway 失败: HTTP {status}, 响应不是合法 JSON: {body!r}"
+                ) from e
 
+        if not isinstance(data, dict):
+            raise RuntimeError(f"获取 gateway 失败: HTTP {status}, body={data!r}")
         if data.get("code") == 100017:
             raise RateLimitError
         gateway = data.get("url")
-        if not gateway:
+        if not isinstance(gateway, str) or not gateway:
             raise RuntimeError(f"获取 gateway 失败: {data}")
 
         async with self._http.ws_connect(gateway, headers=headers) as ws:
@@ -197,7 +205,22 @@ class WebsocketConnecter(Connecter):
             if msg.type != WSMsgType.TEXT:
                 logger.warning(f"WebSocket 收到非文本帧，连接终止: {msg.type}")
                 break
-            if await self._process_frame(msg.json(loads=ujson.loads), heartbeat):
+            try:
+                payload = msg.json(loads=ujson.loads)
+            except ValueError as e:
+                raw = (
+                    msg.data
+                    if isinstance(msg.data, str)
+                    else msg.data.decode("utf-8", "replace")
+                )
+                logger.warning(
+                    f"WebSocket 收到非法 JSON 帧，连接终止: {raw[:200]!r} ({e})"
+                )
+                break
+            if not isinstance(payload, dict):
+                logger.warning(f"WebSocket 收到非对象帧，连接终止: {payload!r}")
+                break
+            if await self._process_frame(cast(Payload, payload), heartbeat):
                 break
             if heartbeat.ack_expired():
                 raise TimeoutError  # ACK 超期 → 交给 run() 走看门狗重连
@@ -208,17 +231,20 @@ class WebsocketConnecter(Connecter):
         interval: float,
         remaining: float,
     ) -> aiohttp.WSMessage | None:
-        """等待下一帧：静默阈值与寿命余量两个截止取先到者。
+        """等待下一帧：静默阈值、握手期限与寿命余量三个截止取先到者。
 
-        超时落在静默阈值上说明连接彻底静默，抛 TimeoutError 交 run() 走看门狗
-        重连；落在寿命余量上返回 None，由调用方回循环顶部主动收尾重连。
+        HELLO 未到时用固定握手期限，避免对端不发 HELLO 时按寿命余量傻等；
+        超时落在静默/握手截止上抛 TimeoutError 交 run() 走看门狗重连，
+        落在寿命余量上返回 None，由调用方回循环顶部主动收尾重连。
         """
-        silence = interval * self._SILENCE_FACTOR
-        watchdog = bool(silence) and silence < remaining
+        deadline = (
+            interval * self._SILENCE_FACTOR if interval else self._HANDSHAKE_TIMEOUT
+        )
+        timeout = min(deadline, remaining)
         try:
-            return await ws.receive(timeout=silence if watchdog else remaining)
+            return await ws.receive(timeout=timeout)
         except TimeoutError:
-            if watchdog:
+            if deadline <= remaining:
                 raise
             return None
 
@@ -232,7 +258,7 @@ class WebsocketConnecter(Connecter):
         # 会话重置在本方法返回前已同步完成，重连不会误 RESUME 死会话。
         response = await self._protocol.on_frame(data)
         if response is not None:
-            await self._outbound.put(cast(Payload, response))
+            await self._outbound.put(cast(OutgoingFrame, response))
         op = data.get("op")
         if op == Opcode.DISPATCH:
             await self._queue.put_event(data)
@@ -244,102 +270,13 @@ class WebsocketConnecter(Connecter):
         while True:
             await asyncio.sleep(interval)
             # 服务端不会推送 op=1，心跳只由本任务投进出站缓冲
-            await self._outbound.put(payload_of(Opcode.HEARTBEAT, self._session.seq))
+            await self._outbound.put(heartbeat_frame(self._session.seq))
 
     async def send_helper(self, ws: aiohttp.ClientWebSocketResponse) -> None:
         """唯一的 ws 写者：从出站缓冲取帧发送（保持 aiohttp 单写者约束）。"""
         while not ws.closed:
-            payload = await self._outbound.get()
-            body = {k: v for k, v in payload.items() if v != NOT_SET}
+            frame = await self._outbound.get()
             try:
-                await ws.send_json(body)
+                await ws.send_json(frame, dumps=ujson.dumps)
             except (aiohttp.ClientError, ConnectionError) as e:
-                logger.warning(f"WebSocket 发送失败，丢弃该帧: {body} ({e})")
-
-
-class WebhookConnecter(Connecter):
-    _DEDUP_TTL = 60
-    # 去重表长度达到该值才做一次过期清理（摊还 O(1)，避免每请求全表扫描）
-    _DEDUP_SWEEP_AT = 1024
-
-    def __init__(
-        self,
-        config: Config,
-        queue: EventQueue,
-        protocol: BaseProtocol,
-    ) -> None:
-        """protocol 为本接入方式的协议处理器（WebhookProtocol），op=13 验证
-        请求由它就地应答；本类只依赖队列与该处理器，不感知 EventEmitter。"""
-        self._config = config
-        self._queue = queue
-        self._protocol = protocol
-        self._seen: dict[str, float] = {}
-
-    def _make_app(self) -> web.Application:
-        app = web.Application()
-        app.add_routes([web.post(self._config.webhook_path, self._handle)])
-        return app
-
-    async def run(self) -> None:
-        runner = web.AppRunner(self._make_app())
-        await runner.setup()
-        site = web.TCPSite(runner, self._config.webhook_host, self._config.webhook_port)
-        await site.start()
-        logger.info(
-            f"Webhook 回调服务已启动: "
-            f"http://{self._config.webhook_host}:{self._config.webhook_port}"
-            f"{self._config.webhook_path}"
-        )
-        try:
-            await asyncio.Event().wait()
-        finally:
-            await runner.cleanup()
-
-    def _duplicated(self, event_id: str | None) -> bool:
-        """TTL 内见过的同 id 视为重复推送。
-
-        过期判断按当前 id 单独做（O(1)），保证 TTL 外重发的同一 id 会被当作
-        新事件处理；整表清过期项只在表长到阈值时做一次，避免每请求 O(n) 扫描。
-        """
-        if not event_id:
-            return False
-        now = monotonic()
-        seen_at = self._seen.get(event_id)
-        if seen_at is not None and now - seen_at <= self._DEDUP_TTL:
-            return True
-        if len(self._seen) >= self._DEDUP_SWEEP_AT:
-            self._seen = {
-                k: ts for k, ts in self._seen.items() if now - ts <= self._DEDUP_TTL
-            }
-        self._seen[event_id] = now
-        return False
-
-    async def _handle(self, request: web.Request) -> web.Response:
-        body = await request.read()
-        payload: Payload = ujson.loads(body)
-
-        if payload.get("op") == Opcode.VALIDATION:
-            logger.info("收到 Webhook 验证请求")
-            ret = await self._protocol.on_frame(payload)
-            if ret is None:
-                return web.json_response(
-                    {"error": "missing validation handler"}, status=500
-                )
-            return web.json_response(ret)
-
-        timestamp = request.headers.get("X-Signature-Timestamp", "")
-        signature = request.headers.get("X-Signature-Ed25519", "")
-        if not verify_sig(self._config.app_secret, timestamp, signature, body):
-            logger.warning("Webhook 验签失败")
-            return web.json_response({"error": "invalid signature"}, status=401)
-
-        event_id = payload.get("id")
-        if isinstance(event_id, str) and self._duplicated(event_id):
-            logger.info(f"Webhook 重复推送已跳过: {event_id}")
-            return web.json_response({"opcode": 12})
-
-        if payload.get("op") == Opcode.DISPATCH:
-            await self._queue.put_event(payload)
-        else:
-            logger.warning(f"Webhook 收到非业务帧，已忽略: op={payload.get('op')}")
-        return web.json_response({"opcode": 12})
+                logger.warning(f"WebSocket 发送失败，丢弃该帧: {frame} ({e})")

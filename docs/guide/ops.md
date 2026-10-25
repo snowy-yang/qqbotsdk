@@ -20,7 +20,6 @@ async def amain():
 ```
 
 - **WebSocket**：进程常驻即可；SDK 自动处理鉴权（IDENTIFY，断线自动 RESUME）、心跳与重连。
-- **Webhook**：平台回调地址要求公网 HTTPS，本地调试建议用反向代理或内网穿透；开放平台会先发 op=13 验证请求，SDK 自动完成签名应答。
 
 ## 常见问题
 

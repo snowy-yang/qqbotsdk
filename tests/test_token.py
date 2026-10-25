@@ -15,11 +15,7 @@ def make_config() -> Config:
         app_secret="s",
         base_url="https://x",
         timeout=ClientTimeout(total=5),
-        connecter="websocket",
         intents_file="intents.toml",
-        webhook_host="0.0.0.0",
-        webhook_port=8080,
-        webhook_path="/qqbot/webhook",
     )
 
 
@@ -50,6 +46,19 @@ class FakeSession:
         return FakeResponse(self._payloads.pop(0))
 
 
+class InvalidJsonResponse(FakeResponse):
+    async def json(self, **kwargs):
+        raise ValueError("bad json")
+
+    async def read(self):
+        return b"<html>bad gateway</html>"
+
+
+class InvalidJsonSession:
+    def post(self, *args, **kwargs):
+        return InvalidJsonResponse(None)
+
+
 def make_token(*payloads) -> AccessToken:
     return AccessToken(make_config(), FakeSession(*payloads))  # type: ignore[arg-type]
 
@@ -77,6 +86,27 @@ async def test_non_dict_payload_raises_token_error():
     with pytest.raises(TokenError) as exc_info:
         await token.get_access_token()
     assert exc_info.value.message == "gateway busy"
+
+
+async def test_non_json_response_raises_token_error():
+    """响应体不是 JSON 时直接报 TokenError，带 HTTP 状态与 body 片段。"""
+    token = AccessToken(make_config(), InvalidJsonSession())  # type: ignore[arg-type]
+    with pytest.raises(TokenError, match="不是合法 JSON") as exc_info:
+        await token.get_access_token()
+    assert exc_info.value.status == 200
+    assert "bad gateway" in str(exc_info.value)
+
+
+async def test_missing_expires_in_raises_token_error():
+    token = make_token({"access_token": "t1"})
+    with pytest.raises(TokenError, match="expires_in"):
+        await token.get_access_token()
+
+
+async def test_non_string_access_token_raises_token_error():
+    token = make_token({"access_token": 123, "expires_in": 7200})
+    with pytest.raises(TokenError, match="access_token"):
+        await token.get_access_token()
 
 
 async def test_concurrent_first_fetch_only_requests_once():

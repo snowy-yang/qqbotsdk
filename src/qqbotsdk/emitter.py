@@ -15,7 +15,8 @@
 import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar, get_type_hints, overload
+from types import UnionType
+from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints, overload
 
 from loguru import logger
 
@@ -25,6 +26,15 @@ from .payloads import PAYLOAD_TYPES
 from .queue import EventQueue
 
 Handler = TypeVar("Handler", bound=Callable[..., Awaitable[Any]])
+
+
+def _strip_optional(hint: Any) -> Any:
+    """把 `T | None` / `Optional[T]` 解成 T；其他标注原样返回。"""
+    if get_origin(hint) in (Union, UnionType):
+        args = tuple(a for a in get_args(hint) if a is not type(None))
+        if len(args) == 1:
+            return args[0]
+    return hint
 
 
 class EventEmitter:
@@ -37,7 +47,7 @@ class EventEmitter:
         self._signatures: dict[
             Callable[..., Any], tuple[dict[str, Any], tuple[str, ...]]
         ] = {}
-        self._background: set[Callable[..., Any]] = set()
+        self._background: set[tuple[str, Callable[..., Any]]] = set()
         self._bg_tasks: set[asyncio.Task[None]] = set()
 
     @property
@@ -69,7 +79,7 @@ class EventEmitter:
             if fn not in handlers:
                 handlers.append(fn)
             if background:
-                self._background.add(fn)
+                self._background.add((name, fn))
             return fn
 
         if fn is None:
@@ -112,7 +122,7 @@ class EventEmitter:
         event = Event(data)
         # 遍历快照：handler 在分发过程中注册新 handler，不影响本次分发
         for fn in list(handlers):
-            if fn in self._background:
+            if (t, fn) in self._background:
                 self._spawn(fn, event)
             else:
                 await self._invoke(fn, event)
@@ -157,7 +167,7 @@ class EventEmitter:
 
         args: list[Any] = []
         for name in names:
-            hint = hints.get(name)
+            hint = _strip_optional(hints.get(name))
             if hint in PAYLOAD_TYPES:
                 args.append(event.typed)
             elif hint is Event:

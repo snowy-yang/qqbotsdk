@@ -54,9 +54,8 @@ class BaseApi:
                 headers=headers,
                 **kwargs,
             ) as resp:
-                # 个别接口 200 响应的 Content-Type 不是 JSON（body 仍是 JSON，
-                # 如回应互动返回 200 text/plain + {}），跳过标头校验
-                data = await resp.json(loads=ujson.loads, content_type=None)
+                # 429/401 的重试路径不需要业务体：先判状态再解析，
+                # 避免限流/鉴权响应体异常时破坏重试
                 if resp.status == 429 and attempt < self._RETRY_LIMIT:
                     delay = self._retry_delay(resp, attempt)
                     logger.warning(f"{method} {path} 触发频率限制，{delay:.0f}s 后重试")
@@ -67,6 +66,15 @@ class BaseApi:
                     self._token.invalidate()
                     logger.warning(f"{method} {path} 鉴权失效，刷新 token 后重试")
                     continue
+                # 个别接口 200 响应的 Content-Type 不是 JSON（body 仍是 JSON，
+                # 如回应互动返回 200 text/plain + {}），跳过标头校验
+                try:
+                    data = await resp.json(loads=ujson.loads, content_type=None)
+                except ValueError as e:
+                    body = (await resp.read())[:200].decode("utf-8", "replace")
+                    raise ApiError(
+                        resp.status, None, f"响应不是合法 JSON: {body!r}"
+                    ) from e
                 if resp.status >= 400:
                     logger.warning(f"{method} {path} 失败: {data}")
                     raise ApiError(resp.status, *error_parts(data))
@@ -77,7 +85,7 @@ class BaseApi:
         raw = resp.headers.get("Retry-After")
         if raw:
             try:
-                return min(float(raw.split(",")[0].strip()), self._RETRY_CAP)
+                return max(0.0, min(float(raw.split(",")[0].strip()), self._RETRY_CAP))
             except ValueError:
                 pass
         return min(self._RETRY_BASE * 2**attempt, self._RETRY_CAP)

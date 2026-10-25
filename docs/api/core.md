@@ -10,8 +10,8 @@ from qqbotsdk import (
     Bot,                     # 门面：on/run/start/call_api/api/services
     EventEmitter, EventQueue,   # 分发层
     Intent,                  # 订阅分组位掩码（IntFlag，可 OR 出掩码传 Bot(intents=…)）
-    BaseProtocol,            # 协议处理器接口（自定义接入方式时继承）
-    Config, Connecter,       # 配置与连接器接口
+    Protocol,                # 协议处理器（握手 / 会话 / 序列号）
+    Config, Connecter,       # 配置与连接器
 )
 ```
 
@@ -21,8 +21,8 @@ from qqbotsdk import (
 | `EventEmitter(queue=None)` | 分发主体，`Bot` 内部持有；`queue` 不传自动创建 |
 | `EventQueue()` | 业务事件通道（连接层 → 分发层，单向）；需多处共享时手动传入（`bot.queue` 取实例） |
 | `Config` | frozen dataclass，环境变量一次性读齐（字段表见[配置与订阅](/docs/guide/config.md#env-配置)） |
-| `Connecter` | 连接适配器接口（`typing.Protocol`），按 `CONNECTER` 自动选择实现 |
-| `BaseProtocol` | 协议处理器接口（`protocol.py`），自定义接入方式时实现 `on_frame(payload)` |
+| `Connecter` | 连接器：gateway 握手、长连接、重连与心跳看门狗 |
+| `Protocol` | 协议处理器（`protocol.py`）：IDENTIFY/RESUME、READY/INVALID_SESSION 与 `s` 序列号 |
 
 子包按需导入：
 
@@ -69,7 +69,7 @@ async def handler(...): ...
 async def slow(...): ...
 ```
 
-- **只分发业务事件**：`EventEmitter` 只处理 op=0（DISPATCH）事件，按 payload 的 `t` 名路由。协议帧（HELLO/READY/INVALID_SESSION/op=13 等）由各接入方式的协议处理器（`WebsocketProtocol`/`WebhookProtocol`）在连接器内就地处理，不进事件队列、也不会触达你的 handler。
+- **只分发业务事件**：`EventEmitter` 只处理 op=0（DISPATCH）事件，按 payload 的 `t` 名路由。协议帧（HELLO/READY/INVALID_SESSION 等）由协议处理器（`Protocol`）在连接器内就地处理，不进事件队列、也不会触达你的 handler。
 - **注册与顺序**：同一函数对同一事件重复注册只生效一次；handler 按注册顺序串行执行（`background=True` 的除外）。
 - **异常隔离**：handler 异常就地记录（loguru），不影响同事件其他 handler 与主循环。
 - **后台并发**：`background=True` 的 handler 进后台任务，emit 不等它；同一事件内失去先后保证，仅用于业务 handler。`bot.run()` 退出时统一取消在飞后台任务。
@@ -110,9 +110,7 @@ handler 参数注入约定表见[事件处理](/docs/guide/handlers.md)。
 | 模块 | 职责 |
 |---|---|
 | `bot.py` | `Bot` 门面：组件装配、`run`/`start` 生命周期 |
-| `connecter.py` | `WebsocketConnecter` / `WebhookConnecter`：接入归一为业务事件流入、出站帧流出 |
-| `protocol.py` | `BaseProtocol` 协议处理器接口（`on_frame`，由连接适配器逐帧调用） |
-| `ws_protocol.py` | IDENTIFY/RESUME 鉴权、会话语义与 `s` 序列号（心跳在 connecter 内） |
-| `webhook_protocol.py` | op=13 验证应答 |
-| `queue.py` / `session.py` / `token.py` / `crypto.py` | 业务事件通道、ws 会话状态、token 缓存、Ed25519 签名 |
+| `connecter.py` | `Connecter`：gateway 握手、长连接、重连与心跳看门狗 |
+| `protocol.py` | `Protocol`：IDENTIFY/RESUME 鉴权、会话语义与 `s` 序列号（心跳在 connecter 内） |
+| `queue.py` / `session.py` / `token.py` | 业务事件通道、ws 会话状态、token 缓存 |
 | `model.py` | Opcode、payload 类型、Intent 位掩码 |

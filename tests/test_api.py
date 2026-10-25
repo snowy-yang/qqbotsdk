@@ -530,11 +530,7 @@ async def test_request_tolerates_non_json_content_type():
             app_secret="s",
             base_url=f"http://{server.host}:{server.port}",
             timeout=ClientTimeout(total=5),
-            connecter="websocket",
             intents_file="intents.toml",
-            webhook_host="0.0.0.0",
-            webhook_port=8080,
-            webhook_path="/qqbot/webhook",
         )
 
         class FixedToken(AccessToken):
@@ -601,11 +597,7 @@ def make_core_api(http: ScriptedSession, token: StubToken | None = None) -> BotA
         app_secret="s",
         base_url="https://x",
         timeout=ClientTimeout(total=5),
-        connecter="websocket",
         intents_file="intents.toml",
-        webhook_host="0.0.0.0",
-        webhook_port=8080,
-        webhook_path="/qqbot/webhook",
     )
     return BotApi(config, http, token or StubToken())  # type: ignore[arg-type]
 
@@ -662,6 +654,56 @@ async def test_request_429_retry_after_capped(monkeypatch):
     api = make_core_api(http)
     await api.get("/v1/x")
     assert delays == [30.0]  # 封顶，不真睡一小时
+
+
+class _BodylessResponse(ScriptedResponse):
+    """429/401 重试路径不应读取业务体；一旦解析就让测试失败。"""
+
+    async def json(self, **kwargs):
+        raise AssertionError("429/401 重试不应解析响应体")
+
+
+async def test_request_429_retries_without_parsing_body(monkeypatch):
+    async def fake_sleep(delay):
+        pass
+
+    monkeypatch.setattr("qqbotsdk.api.core.asyncio.sleep", fake_sleep)
+    http = ScriptedSession(
+        _BodylessResponse(429, None, {"Retry-After": "1"}),
+        ScriptedResponse(200, {"ok": 1}),
+    )
+    api = make_core_api(http)
+    assert await api.get("/v1/x") == {"ok": 1}
+    assert len(http.calls) == 2
+
+
+async def test_request_401_retries_without_parsing_body():
+    http = ScriptedSession(
+        _BodylessResponse(401, None),
+        ScriptedResponse(200, {"ok": 1}),
+    )
+    token = StubToken()
+    api = make_core_api(http, token)
+    assert await api.get("/v1/x") == {"ok": 1}
+    assert token.invalidated == 1
+
+
+class _InvalidJsonResponse(ScriptedResponse):
+    async def json(self, **kwargs):
+        raise ValueError("bad json")
+
+    async def read(self):
+        return b"<html>bad gateway</html>"
+
+
+async def test_request_non_json_body_raises_api_error():
+    """非 JSON 响应直接报错，错误里带 HTTP 状态与 body 片段。"""
+    http = ScriptedSession(_InvalidJsonResponse(200, None))
+    api = make_core_api(http)
+    with pytest.raises(ApiError, match="不是合法 JSON") as exc_info:
+        await api.get("/v1/x")
+    assert exc_info.value.status == 200
+    assert "bad gateway" in str(exc_info.value)
 
 
 async def test_request_429_exhausted_raises_api_error(monkeypatch):

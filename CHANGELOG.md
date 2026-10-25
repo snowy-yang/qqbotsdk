@@ -3,11 +3,30 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [1.0.0] - 2026-10-24
+
+### 移除
+
+- **移除 Webhook 接入**：删除 `WebhookConnecter`、`WebhookProtocol`、Ed25519 验签模块（`crypto.py`）与 `cryptography` 依赖；同时移除 `CONNECTER`、`WEBHOOK_HOST`/`WEBHOOK_PORT`/`WEBHOOK_PATH` 配置项。SDK 自此固定使用 WebSocket 长连接接入，`Bot`/handler/API 用法不变；仍在使用 `CONNECTER=webhook` 的部署需迁回 WebSocket
+
+### 变更（破坏性）
+
+- **类名去掉 WebSocket 前缀**：`WebsocketConnecter` → `Connecter`，`WebsocketProtocol` → `Protocol`；`protocol.py` 现在承载具体的协议处理器，`BaseProtocol` 抽象删除，`Connecter` 不再是 `typing.Protocol`。包顶层导出相应改为 `Connecter`/`Protocol`
 
 ### 新增
 
 - **素材管理（官方 2026-10-21 新增能力对齐）**：Markdown 图片预上传平台，获得 `qqbot-media://` 引用后写入 Markdown，无需公网图床（发送时平台自动转存，图片可反复引用，90 天滑动过期，单机器人 100 张、单张 ≤10MB、仅 png/jpeg/gif/webp）。新增 `media` 域组合进 `BotApi`——`upload_media_image(data, file_name, content_type)` 一步上传（prepare → PUT 预签名 URL 直传 → complete，md5/sha1 自动计算并校验 ETag）；`prepare_media_image`/`complete_media_image` 分步透传；`get_media_images(cursor)` 分页查询与 `delete_media_image(image_id)` 释放配额；`MEDIA_IMAGE_*` 常量与 `MEDIA_IMAGE_MAX_BYTES` 随模块导出。文档新增 [docs/api/media.md](docs/api/media.md)
+
+### 修复
+
+- **连接健壮性**：HELLO 未到达时按 30s 握手期限重连，不再按 50 分钟寿命余量空等；HELLO 的 `heartbeat_interval` 非法（非正数/非数字）按协议错误重连；网关响应与 WS 帧非 JSON/非对象时显式报错或断开重连，不再让异常穿出进程
+- **生命周期与错误语义**：`Bot.start()` 在连接器失败时显式取消分发任务并回收，防止在已关闭的连接池上继续运行；429/401 重试路径不再解析响应体；非 JSON 响应统一抛 `ApiError`/`TokenError`（带 HTTP 状态与 body 片段）
+- **事件与配置细节**：`background=True` 按"事件名 + 函数"隔离；handler 支持 `T | None` 标注
+
+### 优化
+
+- intents 在 `Protocol` 构造时解析并缓存，重连不再重复读 `intents.toml`；`Event.typed` 直接解析原始 `d`，省去一次浅拷贝；`Retry-After` 负值钳制为 0
+- token 响应校验 `access_token`/`expires_in` 的存在性与类型，缺失或非法统一抛 `TokenError`；`TIMEOUT` 非法值给出明确的 `ValueError`
 
 ## [0.2.1] - 2026-10-03
 

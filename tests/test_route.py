@@ -1,4 +1,4 @@
-"""协议帧处理测试：协议处理器（WebsocketProtocol）就近处理握手续传语义，
+"""协议帧处理测试：协议处理器（Protocol）就近处理握手续传语义，
 不进事件分发；只有业务事件（op=0）由 emitter 分发给用户 handler。"""
 
 import pytest
@@ -6,8 +6,8 @@ import pytest
 from qqbotsdk.config import Config
 from qqbotsdk.emitter import EventEmitter
 from qqbotsdk.model import Opcode
+from qqbotsdk.protocol import Protocol
 from qqbotsdk.session import Session
-from qqbotsdk.ws_protocol import WebsocketProtocol
 
 
 class FakeToken:
@@ -19,21 +19,17 @@ class FakeToken:
 
 def make_protocol(
     session: Session | None = None, intents: int | None = None
-) -> tuple[WebsocketProtocol, Session]:
+) -> tuple[Protocol, Session]:
     session = session or Session()
     config = Config(
         app_id="app",
         app_secret="secret",
         base_url="https://api.bot.qq.com",
         timeout=None,  # type: ignore[arg-type]
-        connecter="websocket",
         intents_file="no-such.toml",
-        webhook_host="0.0.0.0",
-        webhook_port=8080,
-        webhook_path="/x",
         intents=intents,
     )
-    return WebsocketProtocol(config, session, FakeToken()), session  # type: ignore[arg-type]
+    return Protocol(config, session, FakeToken()), session  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

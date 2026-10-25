@@ -21,20 +21,17 @@ class Config:
     app_secret: str
     base_url: str
     timeout: ClientTimeout
-    connecter: str
     intents_file: str
-    webhook_host: str
-    webhook_port: int
-    webhook_path: str
     intents: int | None = None
 
     @classmethod
     def load(cls) -> "Config":
-        connecter = os.getenv("CONNECTER", "websocket")
-        if connecter not in ("websocket", "webhook"):
-            raise ValueError(f"未知的接入方式: {connecter}")
         # TIMEOUT 以毫秒配置
-        timeout = float(os.getenv("TIMEOUT", "5000")) / 1000
+        raw_timeout = os.getenv("TIMEOUT", "5000")
+        try:
+            timeout = float(raw_timeout) / 1000
+        except ValueError:
+            raise ValueError(f"TIMEOUT 应为毫秒数，实际: {raw_timeout!r}") from None
         intents_raw = os.getenv("INTENTS", "")
         if intents_raw:
             try:
@@ -50,10 +47,6 @@ class Config:
             app_secret=_required_env("APPSECRET"),
             base_url=os.getenv("BASE_URL", "https://api.bot.qq.com"),
             timeout=ClientTimeout(total=timeout),
-            connecter=connecter,
             intents_file=os.getenv("INTENTS_FILE", "intents.toml"),
-            webhook_host=os.getenv("WEBHOOK_HOST", "0.0.0.0"),
-            webhook_port=int(os.getenv("WEBHOOK_PORT", "8080")),
-            webhook_path=os.getenv("WEBHOOK_PATH", "/qqbot/webhook"),
             intents=intents,
         )

@@ -1,23 +1,12 @@
 """协议模型：Opcode、payload 及各事件 d 字段的 TypedDict、Intent 位掩码。
 
-Payload 里 `NOT_SET` 哨兵标记"外发时应省略"的字段，由
-WebsocketConnecter.send_helper 统一过滤。
+`Payload` 描述入站帧（字段可能缺失或为 null）；出站帧由
+`heartbeat_frame` / `identify_frame` / `resume_frame` 按 op 显式构造，
+每个应发字段都实际存在于 dict 中，因此不需要"省略字段"的哨兵。
 """
 
 from enum import IntEnum, IntFlag
-from typing import Any, Literal, TypedDict
-
-
-class MissingType:
-    def __repr__(self) -> Literal["<NotSet>"]:
-        return "<NotSet>"
-
-    def __bool__(self) -> Literal[False]:
-        return False
-
-
-NOT_SET = MissingType()
-type NoneType = MissingType | None
+from typing import Any, TypedDict
 
 type DispatchData = Any
 
@@ -35,12 +24,12 @@ class Opcode(IntEnum):
 
 
 class Payload(TypedDict, total=False):
-    id: str | NoneType
+    id: str | None
     # 线上 payload 反序列化出来是 int，这里按实际类型声明
-    op: int | NoneType
-    d: "HelloData | IdentifyData | ResumeData | ValidationData | DispatchData | int | NoneType"
-    s: int | NoneType
-    t: str | NoneType
+    op: int | None
+    d: "HelloData | IdentifyData | ResumeData | ValidationData | DispatchData | int | None"
+    s: int | None
+    t: str | None
 
 
 class HelloData(TypedDict):
@@ -58,6 +47,24 @@ class ResumeData(TypedDict):
     token: str
     session_id: str
     seq: int
+
+
+class HeartbeatFrame(TypedDict):
+    op: Opcode
+    d: int | None
+
+
+class IdentifyFrame(TypedDict):
+    op: Opcode
+    d: IdentifyData
+
+
+class ResumeFrame(TypedDict):
+    op: Opcode
+    d: ResumeData
+
+
+type OutgoingFrame = HeartbeatFrame | IdentifyFrame | ResumeFrame
 
 
 class ReadyData(TypedDict, total=False):
@@ -88,8 +95,32 @@ class Intent(IntFlag):
     PUBLIC_GUILD_MESSAGES = 1 << 30
 
 
-def payload_of(op: Opcode, d: Any = NOT_SET) -> Payload:
-    return {"id": NOT_SET, "op": op, "d": d, "s": NOT_SET, "t": NOT_SET}
+def heartbeat_frame(seq: int | None) -> HeartbeatFrame:
+    """心跳帧：d 为已收到的最大序列号，无历史时为 0。"""
+    return {"op": Opcode.HEARTBEAT, "d": seq}
+
+
+def identify_frame(access_token: str, intents: int) -> IdentifyFrame:
+    return {
+        "op": Opcode.IDENTIFY,
+        "d": {
+            "token": f"QQBot {access_token}",
+            "intents": intents,
+            "shard": (0, 1),
+            "properties": {},
+        },
+    }
+
+
+def resume_frame(access_token: str, session_id: str, seq: int) -> ResumeFrame:
+    return {
+        "op": Opcode.RESUME,
+        "d": {
+            "token": f"QQBot {access_token}",
+            "session_id": session_id,
+            "seq": seq,
+        },
+    }
 
 
 def error_parts(data: Any) -> tuple[Any, Any]:

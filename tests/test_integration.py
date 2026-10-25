@@ -9,14 +9,14 @@ import pytest
 from aiohttp import ClientSession, WSMsgType, web
 
 from qqbotsdk.config import Config
-from qqbotsdk.connecter import WebsocketConnecter
+from qqbotsdk.connecter import Connecter
 from qqbotsdk.emitter import EventEmitter
 from qqbotsdk.model import Opcode
 from qqbotsdk.payloads import GroupAtMessage
+from qqbotsdk.protocol import Protocol
 from qqbotsdk.queue import EventQueue
 from qqbotsdk.session import Session
 from qqbotsdk.token import AccessToken
-from qqbotsdk.ws_protocol import WebsocketProtocol
 
 
 class FakeGateway:
@@ -109,30 +109,24 @@ def make_config(gw: FakeGateway) -> Config:
         app_secret="secret",
         base_url=f"http://127.0.0.1:{gw.port}",
         timeout=None,  # type: ignore[arg-type]
-        connecter="websocket",
         intents_file="no-such-intents.toml",  # 测试环境无配置，intents=0
-        webhook_host="127.0.0.1",
-        webhook_port=0,
-        webhook_path="/x",
     )
 
 
 def build_connecter(
     config: Config,
-) -> tuple[ClientSession, EventEmitter, WebsocketConnecter]:
+) -> tuple[ClientSession, EventEmitter, Connecter]:
     http = ClientSession(timeout=config.timeout)
     token = AccessToken(config, http)
     session = Session()
     emitter = EventEmitter(EventQueue())
-    protocol = WebsocketProtocol(config, session, token)
-    connecter = WebsocketConnecter(
-        config, http, token, session, emitter.queue, protocol
-    )
+    protocol = Protocol(config, session, token)
+    connecter = Connecter(config, http, token, session, emitter.queue, protocol)
     return http, emitter, connecter
 
 
 @pytest.mark.asyncio
-async def test_websocket_end_to_end():
+async def test_end_to_end():
     gw = FakeGateway()
     await gw.start()
     try:
@@ -142,8 +136,8 @@ async def test_websocket_end_to_end():
         queue = EventQueue()
         session = Session()
         emitter = EventEmitter(queue)
-        protocol = WebsocketProtocol(config, session, token)
-        connecter = WebsocketConnecter(config, http, token, session, queue, protocol)
+        protocol = Protocol(config, session, token)
+        connecter = Connecter(config, http, token, session, queue, protocol)
 
         received: list[GroupAtMessage] = []
         # 协议帧（HELLO/HEARTBEAT_ACK）绝不该触达 handler——只有 op=0 业务事件入队

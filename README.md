@@ -6,7 +6,7 @@
 [![Downloads](https://img.shields.io/pypi/dm/qqbotsdk-py.svg)](https://pypistats.org/packages/qqbotsdk-py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-QQ 官方机器人 Python SDK（Python 3.12+ / asyncio / aiohttp），支持 WebSocket 与 Webhook 两种接入方式。
+QQ 官方机器人 Python SDK（Python 3.12+ / asyncio / aiohttp），基于 WebSocket 长连接接入。
 
 **📖 在线文档：<https://qqbotsdk.4i.hk/>**
 
@@ -45,13 +45,10 @@ if __name__ == "__main__":
     bot.run()
 ```
 
-Webhook 接入：`.env` 中 `CONNECTER` 改为 `webhook`，再把回调地址配置到 QQ 开放平台（仅支持 80/443/8080/8443 端口，需公网 HTTPS），handler 写法完全一致。
-
 ## 特性
 
 - `Bot` 门面：`bot.run()` 一行启动，`bot.call_api` 通用 REST，`bot.api` 类型化 API 面
 - 断线自动重连（指数退避 + 心跳看门狗），重连时自动 RESUME 续传
-- Webhook 接入自带 Ed25519 验签、op=13 验证应答与事件去重
 - 事件订阅由项目根目录的 `intents.toml` 按大类开关
 - Markdown 与内嵌按钮一等支持，`respond_interaction()` 回应按钮回调
 - 组件按类型注入 handler（自定义组件同样可注入），全 SDK 共享一个 HTTP 连接池
@@ -61,12 +58,10 @@ Webhook 接入：`.env` 中 `CONNECTER` 改为 `webhook`，再把回调地址配
 ```mermaid
 flowchart TB
     subgraph 接入层
-        WS["WebsocketConnecter（ws 长连接 / 重连 / 心跳看门狗）"]
-        WH["WebhookConnecter（http 回调 / 验签 / 去重）"]
+        WS["Connecter（长连接 / 重连 / 心跳看门狗）"]
     end
     subgraph 协议层
-        WSP["WebsocketProtocol（握手 / 会话 / 序列号）"]
-        WHP["WebhookProtocol（op=13 验证应答）"]
+        WSP["Protocol（握手 / 会话 / 序列号）"]
     end
     subgraph 分发层
         Q[("EventQueue<br/>业务事件 op=0")]
@@ -79,9 +74,7 @@ flowchart TB
     QQ["QQ 开放平台"]
 
     WS -. "逐帧 on_frame" .-> WSP
-    WH -. "op=13 逐帧 on_frame" .-> WHP
     WS -->|"业务事件"| Q
-    WH -->|"业务事件"| Q
     Q --> EE
     EE --> USER
     USER --> API

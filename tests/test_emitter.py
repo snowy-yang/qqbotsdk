@@ -208,6 +208,51 @@ async def test_background_handler_does_not_block_dispatch():
 
 
 @pytest.mark.asyncio
+async def test_optional_payload_annotation_is_resolved():
+    """Handler 标注 `T | None` 时仍注入解析后的 payload dataclass。"""
+    emitter = EventEmitter()
+    seen: list[GroupAtMessage | None] = []
+
+    @emitter.on("GROUP_AT_MESSAGE_CREATE")
+    async def handler(msg: GroupAtMessage | None):
+        seen.append(msg)
+
+    await emitter.emit(
+        {
+            "op": Opcode.DISPATCH,
+            "t": "GROUP_AT_MESSAGE_CREATE",
+            "d": {"content": "hi"},
+        }
+    )
+    assert len(seen) == 1
+    assert isinstance(seen[0], GroupAtMessage) and seen[0].content == "hi"
+
+
+@pytest.mark.asyncio
+async def test_background_flag_is_scoped_to_event():
+    """同一函数注册到两个事件时，background 只作用于声明它的那个事件。"""
+    emitter = EventEmitter()
+    done = asyncio.Event()
+
+    async def handler(event: Event):
+        if event.type == "SLOW":
+            await asyncio.sleep(0.05)
+        done.set()
+
+    emitter.on("SLOW", handler, background=True)
+    emitter.on("FAST", handler)
+
+    await emitter.emit({"op": Opcode.DISPATCH, "t": "FAST", "d": {}})
+    assert done.is_set()  # FAST 同步执行
+
+    done.clear()
+    await emitter.emit({"op": Opcode.DISPATCH, "t": "SLOW", "d": {}})
+    assert not done.is_set()  # SLOW 进后台，不阻塞 emit
+    await asyncio.wait_for(done.wait(), timeout=2)
+    await emitter.close()
+
+
+@pytest.mark.asyncio
 async def test_close_cancels_inflight_background_tasks():
     emitter = EventEmitter()
     cancelled = asyncio.Event()

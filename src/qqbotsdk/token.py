@@ -60,14 +60,32 @@ class AccessToken:
                 json=payload,
             ) as resp:
                 # 与 ApiCore.request 同理：个别接口以非 JSON Content-Type 返回 JSON body
-                data = await resp.json(loads=ujson.loads, content_type=None)
+                try:
+                    data = await resp.json(loads=ujson.loads, content_type=None)
+                except ValueError as e:
+                    body = (await resp.read())[:200].decode("utf-8", "replace")
+                    raise TokenError(
+                        resp.status, None, f"响应不是合法 JSON: {body!r}"
+                    ) from e
                 # 失败时 QQ 返回 code/message 且 HTTP 可能仍是 200，
-                # 以 access_token 是否在为准判断成败，抛出真实原因
-                if not isinstance(data, dict) or "access_token" not in data:
+                # 以 access_token/expires_in 是否合法为准判断成败，抛出真实原因
+                if not isinstance(data, dict):
                     raise TokenError(resp.status, *error_parts(data))
-                self._access_token = data["access_token"]
+                token = data.get("access_token")
+                try:
+                    expires_in = int(data.get("expires_in", 0))
+                except (TypeError, ValueError):
+                    expires_in = 0
+                if not isinstance(token, str) or expires_in <= 0:
+                    code, message = error_parts(data)
+                    raise TokenError(
+                        resp.status,
+                        code,
+                        message or "响应缺少合法的 access_token/expires_in",
+                    )
+                self._access_token = token
                 self._expires_at = monotonic() + max(
-                    int(data["expires_in"]) - self._EXPIRY_MARGIN, 1
+                    expires_in - self._EXPIRY_MARGIN, 1
                 )
 
         return self._access_token

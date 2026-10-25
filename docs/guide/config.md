@@ -1,6 +1,6 @@
 # 配置与订阅
 
-`.env` 环境变量、`intents.toml` 事件订阅与接入方式选择。完整字段参考只在本文。
+`.env` 环境变量与 `intents.toml` 事件订阅。完整字段参考只在本文。
 
 ## .env 配置
 
@@ -9,30 +9,21 @@ SDK 启动时自动加载项目根目录的 `.env`，`APPID`/`APPSECRET` 缺失�
 ```ini
 APPID=你的AppID
 APPSECRET=你的AppSecret
-CONNECTER=websocket               # websocket 或 webhook，默认 websocket
 
 BASE_URL=https://api.bot.qq.com   # 可选，官方 API 地址
 TIMEOUT=5000                      # 可选，HTTP 请求超时（毫秒）
 INTENTS_FILE=intents.toml         # 可选，事件订阅配置文件路径
 INTENTS=                          # 可选，订阅掩码直传（十进制或 0x 十六进制），优先于 intents.toml
-
-WEBHOOK_HOST=0.0.0.0              # 以下仅 webhook 接入时生效
-WEBHOOK_PORT=8080
-WEBHOOK_PATH=/qqbot/webhook
 ```
 
 | 字段 | 环境变量 | 默认 | 说明 |
 |---|---|---|---|
 | `app_id` | `APPID` | 必填 | 缺失启动即 ValueError |
 | `app_secret` | `APPSECRET` | 必填 | 同上 |
-| `connecter` | `CONNECTER` | `websocket` | 仅允许 `websocket`/`webhook` |
 | `base_url` | `BASE_URL` | `https://api.bot.qq.com` | 官方 API 根地址 |
 | `timeout` | `TIMEOUT` | `5000`（毫秒） | 转为 aiohttp `ClientTimeout(total=…)` |
 | `intents_file` | `INTENTS_FILE` | `intents.toml` | 事件订阅配置路径 |
 | `intents` | `INTENTS` | 空 | 订阅掩码直传，见[掩码直传](#掩码直传) |
-| `webhook_host` | `WEBHOOK_HOST` | `0.0.0.0` | webhook 监听地址 |
-| `webhook_port` | `WEBHOOK_PORT` | `8080` | webhook 监听端口 |
-| `webhook_path` | `WEBHOOK_PATH` | `/qqbot/webhook` | webhook 回调路径 |
 
 `Config` 是 frozen dataclass，`Bot()` 构造时一次性读齐；handler 可标注 `config: Config` 注入。
 
@@ -81,14 +72,3 @@ QQ 网关只认分组位掩码，**组内单个事件无法单独开关**——�
 3. 都没给才回落 `intents.toml`。
 
 掩码原样下发给网关，含 `Intent` 枚举未收录的位时仅告警不拦截（平台可能新增 SDK 尚未收录的分组）。`Intent` 从包顶层导出（`from qqbotsdk import Intent`），各位值见上面的分组表。
-
-## 接入方式选择
-
-| | WebSocket | Webhook |
-|---|---|---|
-| 网络要求 | 能访问外网即可，本地开发友好 | 需公网可达 + HTTPS，仅支持 80/443/8080/8443 端口 |
-| 配置 | 无额外配置 | 平台回调地址填 `https://<域名>:<端口><WEBHOOK_PATH>` |
-| 连接维护 | SDK 自动心跳、断线指数退避重连并 RESUME 续传；服务端约 1 小时会断开连接，SDK 会在临到期前（约 50 分钟）主动重连续传 | SDK 处理 Ed25519 验签、op=13 验证应答、60s TTL 事件去重 |
-| 适用 | 长驻进程、需要会话与重连保障 | 无状态部署、回调型服务 |
-
-两种方式下 handler 的写法完全一致，切换只需改 `CONNECTER`。

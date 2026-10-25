@@ -1,14 +1,13 @@
 import pytest
 
 from qqbotsdk.config import Config
-from qqbotsdk.ws_protocol import get_intents, resolve_intents
+from qqbotsdk.protocol import get_intents, resolve_intents
 
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("APPID", "123")
     monkeypatch.setenv("APPSECRET", "s")
-    monkeypatch.delenv("CONNECTER", raising=False)
     monkeypatch.delenv("BASE_URL", raising=False)
 
 
@@ -59,20 +58,12 @@ def test_config_load_defaults():
     config = Config.load()
     assert config.app_id == "123"
     assert config.app_secret == "s"
-    assert config.connecter == "websocket"
     assert config.base_url == "https://api.bot.qq.com"
-    assert config.webhook_port == 8080
 
 
 def test_config_requires_appid(monkeypatch):
     monkeypatch.delenv("APPID", raising=False)
     with pytest.raises(ValueError, match="APPID"):
-        Config.load()
-
-
-def test_config_rejects_unknown_connecter(monkeypatch):
-    monkeypatch.setenv("CONNECTER", "carrier-pigeon")
-    with pytest.raises(ValueError, match="carrier-pigeon"):
         Config.load()
 
 
@@ -95,17 +86,19 @@ def test_config_intents_env_invalid(monkeypatch):
         Config.load()
 
 
+def test_config_timeout_invalid(monkeypatch):
+    monkeypatch.setenv("TIMEOUT", "abc")
+    with pytest.raises(ValueError, match="TIMEOUT"):
+        Config.load()
+
+
 def make_config(intents: int | None, path: str) -> Config:
     return Config(
         app_id="app",
         app_secret="secret",
         base_url="https://api.bot.qq.com",
         timeout=None,  # type: ignore[arg-type]
-        connecter="websocket",
         intents_file=path,
-        webhook_host="0.0.0.0",
-        webhook_port=8080,
-        webhook_path="/x",
         intents=intents,
     )
 
