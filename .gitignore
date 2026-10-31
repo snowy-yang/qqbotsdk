@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+.venv
+.vscode
+.zcode
+
+dist
+build
+.ruff_cache
+
+.env

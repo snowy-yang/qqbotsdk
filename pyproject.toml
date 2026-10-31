@@ -1,0 +1,68 @@
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+qqbotsdk-base-py = { workspace = true }
+qqbotsdk-py = { workspace = true }
+qqbotsdk-guild-py = { workspace = true }
+
+[dependency-groups]
+dev = ["pyright>=1.1.414", "ruff>=0.17.3"]
+
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = [
+    "packages/qqbotsdk-base/src",
+    "packages/qqbotsdk/src",
+    "packages/qqbotsdk-guild/src",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "RUF", # Ruff 自有规则
+]
+
+ignore = [
+    "COM812", # missing-trailing-comma
+    "ISC001", # single-line-implicit-string-concatenation
+    "E501",   # line-too-long
+    "RUF001", # ambiguous-unicode-character-string
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG", "PLR2004"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["qqbotsdk"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+include = ["packages"]
+extraPaths = [
+    "packages/qqbotsdk-base/src",
+    "packages/qqbotsdk/src",
+    "packages/qqbotsdk-guild/src",
+]
+exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
+
+reportMissingParameterType = "error"
+reportMissingReturnType = "error"
+reportPrivateUsage = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+
+reportMissingTypeStubs = false

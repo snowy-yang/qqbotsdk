@@ -1,0 +1,23 @@
+[project]
+name = "qqbotsdk-base-py"
+version = "0.1.0"
+description = "QQ 官方机器人 SDK 基座包：模型基类、共享消息模型与 HTTP 会话"
+readme = "README.md"
+authors = [
+    { name = "snowy-yang", email = "102860110+snowy-yang@users.noreply.github.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.14.5",
+    "loguru>=0.7.3",
+    "pydantic>=2.14.1",
+    "python-dotenv>=1.2.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "qqbotsdk"
+namespace = true

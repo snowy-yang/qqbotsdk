@@ -1,0 +1,20 @@
+[project]
+name = "qqbotsdk-guild-py"
+version = "0.1.0"
+description = "QQ 官方机器人 SDK 频道域子包：guild / channel / 成员 / 身份组 / 公告 / 精华 / 日程 / 论坛 / 私信"
+readme = "README.md"
+authors = [
+    { name = "snowy-yang", email = "102860110+snowy-yang@users.noreply.github.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "qqbotsdk-base-py>=0.1.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "qqbotsdk"
+namespace = true
