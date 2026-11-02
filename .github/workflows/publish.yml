@@ -1,0 +1,62 @@
+name: 发布到 PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只构建并演练发布（不上传）"
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    name: 构建并按依赖顺序发布
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # 本仓库是 uv workspace，三发行包都在 packages/ 下，
+      # 因此必须 --all-packages，否则只会产出根目录的 unknown-0.0.0 空包。
+      - name: 构建全部 sdist 与 wheel
+        run: uv build --all-packages --out-dir dist
+
+      - name: 列出待发布产物
+        run: ls -l dist
+
+      # 发布凭证：仓库 Secret UV_PUBLISH_TOKEN（PyPI API token）。
+      # 必须是 **账户级（account-scoped）** token，才能同时发布三个包；
+      # 项目级（project-scoped）token 只能发它自己那个项目。
+      - name: 发布演练（dry-run）
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
+        run: uv publish --dry-run
+
+      # 正式发布：严格按依赖顺序，前一个失败则后续中止，避免线上坏链。
+      # --check-url 让重复文件跳过，便于重跑（幂等）。
+      - name: 发布 qqbotsdk-base-py
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
+        run: uv publish --check-url https://pypi.org/simple "dist/qqbotsdk_base_py-*"
+
+      - name: 发布 qqbotsdk-guild-py
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
+        run: uv publish --check-url https://pypi.org/simple "dist/qqbotsdk_guild_py-*"
+
+      - name: 发布 qqbotsdk-py（依赖前两者，最后发）
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
+        run: uv publish --check-url https://pypi.org/simple "dist/qqbotsdk_py-*"

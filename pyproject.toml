@@ -7,7 +7,12 @@ qqbotsdk-py = { workspace = true }
 qqbotsdk-guild-py = { workspace = true }
 
 [dependency-groups]
-dev = ["pyright>=1.1.414", "ruff>=0.17.3"]
+dev = [
+    "pyright>=1.1.414",
+    "pytest>=8.4",
+    "pytest-asyncio>=1.0",
+    "ruff>=0.17.3",
+]
 
 
 [tool.ruff]
@@ -52,6 +57,9 @@ indent-style = "space"
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
+# 指向项目虚拟环境，否则 pyright 会解析到全局 site-packages
+venvPath = "."
+venv = ".venv"
 include = ["packages"]
 extraPaths = [
     "packages/qqbotsdk-base/src",
@@ -66,3 +74,14 @@ reportPrivateUsage = "error"
 reportUnnecessaryTypeIgnoreComment = "error"
 
 reportMissingTypeStubs = false
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = [
+    "packages/qqbotsdk-base/src",
+    "packages/qqbotsdk/src",
+    "packages/qqbotsdk-guild/src",
+]
