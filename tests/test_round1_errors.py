@@ -10,6 +10,7 @@ from aiohttp import ClientSession, WSMsgType, web
 from qqbotsdk.api.core import CHECKED_HOSTS, QQBotResponse
 from qqbotsdk.errors import QQBotAPIError, QQBotGatewayError
 from qqbotsdk.ws import DEFAULT_INTENTS, QQBotWebSocket
+from qqbotsdk.ws import client as ws_client_module
 
 
 @pytest.fixture
@@ -72,8 +73,17 @@ async def test_http_200_still_works(api_server: tuple[str, str]) -> None:
         assert (await resp.json())["username"] == "bot"
 
 
-async def test_gateway_rejects_fatal_close() -> None:
+async def test_gateway_rejects_fatal_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """关闭码 4914 不可重连, 必须通过 last_error 暴露具体原因."""
+
+    # 网关鉴权要真实 token: 用例自带桩, 不依赖 .env 或外部网络.
+    async def fake_token(*, force: bool = False) -> str:
+        _ = force
+        return "fake_token"
+
+    monkeypatch.setattr(ws_client_module, "get_access_token", fake_token)
 
     async def handler(request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
