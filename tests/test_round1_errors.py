@@ -136,14 +136,15 @@ async def test_fetch_gateway_url_missing_url_raises_gateway_error(
 
     CHECKED_HOSTS.add("127.0.0.1")
     monkeypatch.setattr(core, "BASE_URL", f"http://127.0.0.1:{port}")
-    monkeypatch.setattr(core.session, "_client", None)
+    monkeypatch.setattr(core.get_session(), "_client", None)
 
     async with ClientSession(
         base_url=f"http://127.0.0.1:{port}",
         raise_for_status=True,
         response_class=QQBotResponse,
     ) as client:
-        monkeypatch.setattr(gateway_module.session, "_client", client)
+        # 改内部状态要拿真实会话对象; 模块级 ``session`` 只是转发代理
+        monkeypatch.setattr(core.get_session(), "_client", client)
         with pytest.raises(QQBotGatewayError):
             await gateway_module.fetch_gateway_url()
 

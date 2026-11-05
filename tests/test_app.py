@@ -16,7 +16,8 @@ from aiohttp import WSMsgType, web
 from qqbotsdk.api import core
 from qqbotsdk.api import user as user_api
 from qqbotsdk.api.group import messages as group_messages
-from qqbotsdk.app import Bot, Context
+from qqbotsdk.app import Bot, Context, callback, keyboard, row
+from qqbotsdk.app.bot import MSG_SEQ_CACHE_LIMIT, reset_msg_seq_cache
 from qqbotsdk.app.dispatch import TASK_NAME
 from qqbotsdk.model.event.group import GroupAtMessageCreateEvent
 from qqbotsdk.model.group.messages import SendGroupMessagesResponse
@@ -737,6 +738,125 @@ async def test_send_is_proactive_without_anchor(
     assert group_openid == GROUP_OPENID
     dumped = request.model_dump(exclude_none=True)
     assert dumped == {"msg_type": 0, "content": "主动消息"}
+
+
+async def test_reply_accepts_keyboard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """被动回复可以带内嵌键盘, 不必绕开框架直连 send_group_messages."""
+    sent = _patch_group_send(monkeypatch)
+    results: list[str | None] = []
+    async with Harness(monkeypatch, [_group_dispatch()]) as harness:
+        bot = Bot(url=harness.gateway.ws_url, auto_reconnect=False)
+
+        @bot.on_message(group=True, c2c=False)
+        async def handler(ctx: Context) -> None:
+            built = keyboard(row(callback("选项 A", "a")))
+            results.append(await ctx.reply("来答一道题", keyboard=built))
+
+        harness.start(bot)
+        await _wait_until(lambda: len(results) == 1)
+
+    assert results == ["sent-1"]
+    _, request = sent[0]
+    dumped = request.model_dump(exclude_none=True)
+    assert dumped["content"] == "来答一道题"
+    assert dumped["msg_seq"] == 1
+    rows = dumped["keyboard"]["content"]["rows"]
+    assert rows[0]["buttons"][0]["render_data"]["label"] == "选项 A"
+    assert rows[0]["buttons"][0]["action"]["data"] == "a"
+
+
+async def test_reply_without_keyboard_sends_no_keyboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """不传 keyboard 时请求体里不出现 keyboard 字段."""
+    sent = _patch_group_send(monkeypatch)
+    async with Harness(monkeypatch, [_group_dispatch()]) as harness:
+        bot = Bot(url=harness.gateway.ws_url, auto_reconnect=False)
+        results: list[str | None] = []
+
+        @bot.on_message(group=True, c2c=False)
+        async def handler(ctx: Context) -> None:
+            results.append(await ctx.reply("纯文本"))
+
+        harness.start(bot)
+        await _wait_until(lambda: len(results) == 1)
+
+    assert "keyboard" not in sent[0][1].model_dump(exclude_none=True)
+
+
+async def test_scene_api_reply_forwards_keyboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ctx.api.reply 与 ctx.reply 行为一致, 同样支持 keyboard 与 msg_seq."""
+    sent = _patch_group_send(monkeypatch)
+    results: list[str | None] = []
+    async with Harness(monkeypatch, [_group_dispatch()]) as harness:
+        bot = Bot(url=harness.gateway.ws_url, auto_reconnect=False)
+
+        @bot.on_message(group=True, c2c=False)
+        async def handler(ctx: Context) -> None:
+            built = keyboard(row(callback("选项 B", "b")))
+            results.append(await ctx.api.reply("选一个", msg_seq=3, keyboard=built))
+
+        harness.start(bot)
+        await _wait_until(lambda: len(results) == 1)
+
+    _, request = sent[0]
+    dumped = request.model_dump(exclude_none=True)
+    assert dumped["msg_seq"] == 3
+    assert "keyboard" in dumped
+
+
+def test_msg_seq_is_shared_across_bot_instances() -> None:
+    """同一锚点的 msg_seq 计数跨 Bot 实例共享, 不会各自从 1 重来.
+
+    平台只认 msg_id + msg_seq 是否重复, 与是哪个 Bot 实例发的无关. 分开计数会让
+    两个实例都发 msg_seq=1, 直接撞 40054005.
+    """
+    first = Bot()
+    second = Bot()
+    assert first.next_msg_seq("ANCHOR-X") == 1
+    assert second.next_msg_seq("ANCHOR-X") == 2
+    assert first.next_msg_seq("ANCHOR-X") == 3
+
+
+def test_msg_seq_seq_key_shares_one_counter() -> None:
+    """seq_key 让手工请求与 ctx.reply 共用一份计数."""
+    bot = Bot()
+    # 模拟手工拼请求直连 send_group_messages 时先登记
+    assert bot.next_msg_seq("ANCHOR-Y", seq_key="manual") == 1
+    assert bot.next_msg_seq("ANCHOR-Y", seq_key="manual") == 2
+    # 默认锚点键不受影响, 仍是独立计数
+    assert bot.next_msg_seq("ANCHOR-Y") == 1
+
+
+def test_msg_seq_explicit_value_advances_counter() -> None:
+    """显式值把计数推进到该值, 后续自增接着往上涨."""
+    bot = Bot()
+    assert bot.next_msg_seq("ANCHOR-Z", 7) == 7
+    assert bot.next_msg_seq("ANCHOR-Z") == 8
+    # 倒着传不会让计数回退
+    assert bot.next_msg_seq("ANCHOR-Z", 2) == 2
+    assert bot.next_msg_seq("ANCHOR-Z") == 9
+
+
+def test_reset_msg_seq_cache_clears_counter() -> None:
+    """reset_msg_seq_cache 清空全局计数."""
+    bot = Bot()
+    assert bot.next_msg_seq("ANCHOR-R") == 1
+    reset_msg_seq_cache()
+    assert bot.next_msg_seq("ANCHOR-R") == 1
+
+
+def test_msg_seq_cache_evicts_oldest() -> None:
+    """超过 MSG_SEQ_CACHE_LIMIT 后淘汰最久未用的锚点."""
+    bot = Bot()
+    for index in range(MSG_SEQ_CACHE_LIMIT + 5):
+        bot.next_msg_seq(f"ANCHOR-{index}")
+    # 最早的锚点已被淘汰, 重新从 1 开始
+    assert bot.next_msg_seq("ANCHOR-0") == 1
+    # 最近的锚点仍在缓存里
+    assert bot.next_msg_seq(f"ANCHOR-{MSG_SEQ_CACHE_LIMIT + 4}") == 2
 
 
 # ---------------------------------------------------------------- 生命周期

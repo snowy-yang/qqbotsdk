@@ -70,7 +70,7 @@ while True:
 
 ## 会话
 
-`qqbotsdk.api.core.session` 是懒加载单例，签名与 `aiohttp.ClientSession` 一致；进程退出前建议 `await session.close()`：
+`qqbotsdk.api.core.session` 是稳定的转发入口，每次调用都转发到**当前生效的会话**（默认是一个懒加载单例），签名与 `aiohttp.ClientSession` 一致；进程退出前建议 `await session.close()`：
 
 ```python
 from qqbotsdk.api.core import session
@@ -79,6 +79,24 @@ from qqbotsdk.api.core import session
 
 await session.close()
 ```
+
+会话可以整体替换，业务模块与 `ctx.api` 会自动跟着换，不需要逐个模块打补丁——单测里用它把请求指向本地假服务端：
+
+```python
+from qqbotsdk.api import core
+
+async with core.use_session(fake_session):
+    ...  # 这个块里所有 qqbotsdk 请求都走 fake_session
+
+# 或者手动管理
+core.set_session(fake_session)
+try:
+    ...
+finally:
+    core.set_session(None)  # 恢复默认单例
+```
+
+需要改内部状态（例如替换底层 `ClientSession`）时用 `core.get_session()` 拿真实会话对象；`session` 本身只是代理，往它上面赋值不会生效。
 
 ## 接口索引
 

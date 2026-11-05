@@ -22,6 +22,7 @@ import asyncio
 import os
 import random
 from collections.abc import Awaitable, Callable, Generator, Mapping
+from contextlib import contextmanager
 from types import TracebackType
 from typing import Any, Final, cast
 from urllib.parse import urlparse
@@ -434,7 +435,100 @@ class QQBotSession:
         await self.close()
 
 
-session = QQBotSession()
+# 默认会话: 未注入时所有请求都走它
+_DEFAULT_SESSION: Final = QQBotSession()
+
+# 当前注入的会话; None 表示用默认会话
+_injected_session: QQBotSession | None = None
+
+
+class _SessionRouter:
+    """``session`` 的转发实现: 每次调用都重新解析当前生效的会话.
+
+    模块级 ``session`` 必须是**稳定的转发层**而不是会话本身: 业务模块的
+    ``from ... import session`` 在 import 期就把名字绑死了, 如果 ``session`` 是会话
+    实例, 注入就要去改各模块的模块属性(打补丁), 测起来很脆. 这里让名字稳定不变,
+    真正的会话由 :func:`set_session` 换, 所有 import 过它的模块自动看到新会话.
+    """
+
+    __slots__ = ()
+
+    def __getattr__(self, name: str) -> Any:
+        """未显式定义的属性一律转发到当前生效的会话.
+
+        注意这是「转发引用」: ``session.some_attr = x`` 只会写到本代理上, 不会写到
+        真正的会话. 需要改内部状态请用 :func:`get_session` 拿真实会话.
+        """
+        return getattr(resolve_session(), name)
+
+    def _ensure(self) -> ClientSession:
+        """确保当前会话的连接池已创建, 返回底层 ``ClientSession``."""
+        session = resolve_session()
+        return session._ensure()  # pyright: ignore[reportPrivateUsage]
+
+    async def __aenter__(self) -> ClientSession:
+        return self._ensure()
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
+
+def resolve_session() -> QQBotSession:
+    """返回当前生效的会话对象: 注入了就用注入的, 否则用模块级默认单例."""
+    return _DEFAULT_SESSION if _injected_session is None else _injected_session
+
+
+def get_session() -> QQBotSession:
+    """返回当前生效的会话对象, 供需要改内部状态(例如测试)的场景使用."""
+    return resolve_session()
+
+
+@contextmanager
+def use_session(session: QQBotSession) -> Generator[QQBotSession]:
+    """在 ``with`` 块内让所有 ``qqbotsdk`` 请求改走指定会话, 退出后还原.
+
+    用于单测: 构造一个指向本地假服务端的会话传进来, 业务模块与 ``ctx.api`` 都会
+    自动用它, 不会误连真实域名.
+
+    Args:
+        session: 要临时启用的会话对象.
+
+    Yields:
+        传入的会话对象本身.
+    """
+    set_session(session)
+    try:
+        yield session
+    finally:
+        reset_session()
+
+
+def set_session(session: QQBotSession | None) -> None:
+    """替换全局会话(传 None 表示恢复默认单例).
+
+    Args:
+        session: 新的会话对象, 或 None.
+
+    Notes:
+        被替换掉的会话不会被自动关闭, 调用方自己决定何时 ``await it.close()``.
+    """
+    global _injected_session
+    _injected_session = session
+
+
+def reset_session() -> None:
+    """恢复默认单例, 供测试夹具收尾使用(不关闭任何会话)."""
+    global _injected_session
+    _injected_session = None
+
+
+session = _SessionRouter()
+"""当前生效会话的转发入口, 用法与 ``aiohttp.ClientSession`` 一致.
+
+``from qqbotsdk.api.core import session`` 拿到的就是这个对象; 它本身不持有连接,
+真正的会话由 :func:`get_session` / :func:`set_session` 决定, 因此测试里可以整体
+换成假服务端上的会话.
+"""
 
 __all__ = [
     "BASE_URL",
@@ -445,5 +539,9 @@ __all__ = [
     "RETRY_TOTAL_WAIT_SECONDS",
     "QQBotResponse",
     "QQBotSession",
+    "get_session",
+    "reset_session",
     "session",
+    "set_session",
+    "use_session",
 ]

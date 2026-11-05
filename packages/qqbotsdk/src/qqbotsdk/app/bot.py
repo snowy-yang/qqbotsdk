@@ -47,6 +47,25 @@ from qqbotsdk.ws.payload import GatewayPayload, OpCode
 MSG_SEQ_CACHE_LIMIT: Final = 512
 """msg_seq 缓存的最大锚点数, 超出后淘汰最久未使用的锚点."""
 
+# 被动回复锚点(事件 ID 或消息 ID) -> 已用到的最大 msg_seq.
+# 放模块级而不是 Bot 实例上: 平台只认「msg_id + msg_seq」是否重复, 与是哪个 Bot
+# 实例发的无关. 多实例(分片 / 多机器人代管同一批会话)共用一份计数才不会各自从 1
+# 重来. 键是普通字符串, 不会因此持有 Bot 或会话相关的引用.
+_MSG_SEQ_CACHE: dict[str, int] = {}
+
+
+def reset_msg_seq_cache() -> None:
+    """清空全局 msg_seq 计数, 仅供测试与长驻进程的兜底清理使用."""
+    _MSG_SEQ_CACHE.clear()
+
+
+def _remember_msg_seq(key: str, seq: int) -> None:
+    """写入锚点的序号(只增不减)并按上限淘汰最久未使用的条目."""
+    previous = _MSG_SEQ_CACHE.pop(key, 0)
+    _MSG_SEQ_CACHE[key] = seq if seq > previous else previous
+    while len(_MSG_SEQ_CACHE) > MSG_SEQ_CACHE_LIMIT:
+        _MSG_SEQ_CACHE.pop(next(iter(_MSG_SEQ_CACHE)))
+
 
 class Bot:
     """把网关连接和事件注册表绑在一起的机器人实例.
@@ -71,8 +90,6 @@ class Bot:
         self._ws: QQBotWebSocket | None = None
         self._stop_event = asyncio.Event()
         self._running = False
-        # 被动回复锚点(事件 ID 或消息 ID) -> 已用到的最大 msg_seq
-        self._msg_seq_cache: dict[str, int] = {}
 
     def __repr__(self) -> str:
         return (
@@ -168,31 +185,36 @@ class Bot:
 
     # ------------------------------------------------------------ msg_seq
 
-    def next_msg_seq(self, anchor: str, msg_seq: int | None = None) -> int:
+    def next_msg_seq(
+        self,
+        anchor: str,
+        msg_seq: int | None = None,
+        *,
+        seq_key: str | None = None,
+    ) -> int:
         """返回该被动回复锚点本次使用的 ``msg_seq``, 供 :meth:`Context.reply` 调用.
 
         Args:
             anchor: 本次被动回复的锚点, 即事件 ID 或消息 ID.
             msg_seq: 调用方显式指定的序号; 传了就以它为准, 并把该锚点的计数
                 推进到该值, 之后的自增不会回头撞上已用过的序号.
+            seq_key: 计数用的键, 省略时用 ``anchor``. 自己拼请求直连
+                ``send_group_messages`` 时, 用同一个键调一次本方法登记, 再回来
+                的 ``ctx.reply`` 就不会从 1 重新开始而触发 40054005.
 
         不显式指定时按锚点自增: 同一锚点第一次是 1, 第二次是 2, 以此类推,
-        避免平台返回 40054005 (相同 msg_id + msg_seq 重复发送). 缓存按
-        ``MSG_SEQ_CACHE_LIMIT`` 限制条目数, 超出后淘汰最久未使用的锚点.
+        避免平台返回 40054005 (相同 msg_id + msg_seq 重复发送). 计数**按锚点全局
+        共享**, 不随 ``Bot`` 实例隔离: 同一进程内多个 ``Bot`` 实例命中同一锚点时
+        继续往下排, 而不是各自从 1 开始. 缓存按 ``MSG_SEQ_CACHE_LIMIT`` 限制
+        条目数, 超出后淘汰最久未使用的锚点.
         """
+        key = seq_key or anchor
         if msg_seq is not None:
-            self._remember_msg_seq(anchor, msg_seq)
+            _remember_msg_seq(key, msg_seq)
             return msg_seq
-        seq = self._msg_seq_cache.get(anchor, 0) + 1
-        self._remember_msg_seq(anchor, seq)
+        seq = _MSG_SEQ_CACHE.get(key, 0) + 1
+        _remember_msg_seq(key, seq)
         return seq
-
-    def _remember_msg_seq(self, anchor: str, seq: int) -> None:
-        """写入锚点的序号(只增不减)并按上限淘汰最久未使用的条目."""
-        previous = self._msg_seq_cache.pop(anchor, 0)
-        self._msg_seq_cache[anchor] = seq if seq > previous else previous
-        while len(self._msg_seq_cache) > MSG_SEQ_CACHE_LIMIT:
-            self._msg_seq_cache.pop(next(iter(self._msg_seq_cache)))
 
     # ------------------------------------------------------------ 生命周期
 
@@ -256,4 +278,5 @@ class Bot:
 __all__ = [
     "MSG_SEQ_CACHE_LIMIT",
     "Bot",
+    "reset_msg_seq_cache",
 ]

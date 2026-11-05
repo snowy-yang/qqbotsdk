@@ -17,6 +17,7 @@ from qqbotsdk.api.group import messages as group_messages
 from qqbotsdk.app.api import SceneApi
 from qqbotsdk.model.core import QQBotBaseModel
 from qqbotsdk.model.group.messages import SendGroupMessagesRequest
+from qqbotsdk.model.sub.messages import Keyboard
 from qqbotsdk.model.user.messages import SendUserMessagesRequest
 from qqbotsdk.ws.payload import GatewayPayload
 
@@ -52,6 +53,7 @@ def _request_body(
     event_id: str | None,
     msg_id: str | None,
     msg_seq: int | None,
+    keyboard: Keyboard | None = None,
 ) -> dict[str, Any]:
     """拼纯文本消息的请求体.
 
@@ -68,6 +70,8 @@ def _request_body(
         body["msg_id"] = msg_id
     if msg_seq is not None:
         body["msg_seq"] = msg_seq
+    if keyboard is not None:
+        body["keyboard"] = keyboard
     return body
 
 
@@ -167,8 +171,15 @@ class Context:
             return None
         return None
 
-    async def reply(self, content: str, *, msg_seq: int | None = None) -> str | None:
-        """被动回复一条纯文本消息, 返回新消息 id.
+    async def reply(
+        self,
+        content: str,
+        *,
+        msg_seq: int | None = None,
+        keyboard: Keyboard | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
+        """被动回复一条文本消息, 返回新消息 id.
 
         只支持消息类事件: ``GROUP_AT_MESSAGE_CREATE`` / ``GROUP_MESSAGE_CREATE``
         走群聊接口(目标取 ``d.group_openid``), ``C2C_MESSAGE_CREATE`` 走单聊接口
@@ -182,7 +193,18 @@ class Context:
 
         ``msg_seq`` 用于同一锚点上的多条回复去重(平台对同一个 msg_id + msg_seq
         重复发送会返回 40054005): 不传时由 Bot 按锚点自增(首次 1, 第二次 2),
-        传了则以传入值为准, 并把该锚点的计数推进到该值.
+        传了则以传入值为准, 并把该锚点的计数推进到该值. 平台上限是群聊 5 次、
+        单聊 4 次, 超出会被拒发.
+
+        ``keyboard`` 是内嵌键盘(可带按钮), 省略则不带键盘. 群聊与单聊共用同一种
+        键盘结构, 因此这里直接透传; 用它就能在被动回复里带上按钮而不用绕开框架
+        直连 ``send_group_messages``::
+
+            await ctx.reply("来答题", keyboard=keyboard)
+
+        ``seq_key`` 只影响计数用哪个键, 省略时用锚点本身. 如果你自己拼请求直连
+        ``send_group_messages`` 发过一条被动回复, 先 ``bot.next_msg_seq(锚点)``
+        登记, 或把那次也算成同一个 ``seq_key``, 就不会撞上 40054005.
         """
         target = self._reply_target()
         if target is None:
@@ -191,12 +213,13 @@ class Context:
         anchor = event_id or message_id
         if anchor is None:
             return None
-        seq = self.bot.next_msg_seq(anchor, msg_seq)
+        seq = self.bot.next_msg_seq(anchor, msg_seq, seq_key=seq_key)
         body = _request_body(
             content,
             event_id=event_id,
             msg_id=None if event_id is not None else message_id,
             msg_seq=seq,
+            keyboard=keyboard,
         )
         return await _send_to(*target, body)
 

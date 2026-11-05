@@ -54,6 +54,19 @@ await session.close()  # 进程退出前调用，避免 aiohttp 提示会话未�
 
 `session` 是懒加载单例：可以在任何位置 import，不需要先有事件循环。
 
+## 替换会话（单测）
+
+`session` 只是转发代理，真正的会话由 `get_session()` / `set_session()` 决定。测试里整体换掉它，所有业务模块与 `ctx.api` 都会跟着走假服务端，不会误连真实域名：
+
+```python
+from qqbotsdk.api import core
+
+async with core.use_session(local_session):
+    ...  # 块内所有请求都打到本地假服务端
+```
+
+需要改内部状态（如底层 `ClientSession`）时用 `core.get_session()` 拿真实对象；直接给 `core.session.xxx` 赋值只会写到代理上。
+
 ## 常见问题
 
 | 现象 | 原因 |

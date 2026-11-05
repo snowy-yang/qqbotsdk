@@ -6,6 +6,11 @@ Intents 是一个位掩码, 在 Identify 时上报给网关, 声明机器人希�
     from qqbotsdk.ws import Intents
 
     intents = Intents.GROUP_AND_C2C_EVENT | Intents.PUBLIC_GUILD_MESSAGES
+
+``GROUP_MEMBER_EVENT`` (1<<24) 没有出现在官方「事件订阅与通知」的总表里, 但
+``GROUP_MEMBER_ADD`` 与 ``GROUP_JOIN_REQUEST`` 两篇事件文档标注的 intent 都是它;
+官方 Python SDK (botpy) 至今也没有这一位. 需要群成员进出 / 入群申请事件时显式
+订阅它.
 """
 
 from enum import IntFlag
@@ -20,6 +25,7 @@ class Intents(IntFlag):
     GUILD_MESSAGES = 1 << 9
     GUILD_MESSAGE_REACTIONS = 1 << 10
     DIRECT_MESSAGE = 1 << 12
+    GROUP_MEMBER_EVENT = 1 << 24
     GROUP_AND_C2C_EVENT = 1 << 25
     INTERACTION = 1 << 26
     MESSAGE_AUDIT = 1 << 27

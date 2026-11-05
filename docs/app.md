@@ -48,7 +48,7 @@ Bot(
 | `ctx.bot` | 反向访问 `Bot` |
 | `ctx.event_name` | `payload.t` |
 | `ctx.group_openid` / `ctx.user_openid` | 从事件体里取场景 openid |
-| `await ctx.reply(content, *, msg_seq=None)` | 被动回复，自动处理锚点与序号 |
+| `await ctx.reply(content, *, msg_seq=None, keyboard=None, seq_key=None)` | 被动回复，自动处理锚点与序号，可带内嵌键盘 |
 | `await ctx.send(content)` | 主动消息（不带 `event_id`/`msg_id`） |
 
 ### reply 的锚点规则
@@ -57,9 +57,27 @@ Bot(
 2. 否则回退 `d.id`（消息 ID）→ 填 `msg_id`；
 3. 两者互斥，请求体里只会出现一个；
 4. 都取不到 → 返回 `None`，**不会**退化成主动消息（不消耗主动推送配额）；
-5. `msg_seq` 按锚点自增（1、2、3…，LRU 上限 512）；显式传入则覆盖并把计数推进到该值。
+5. `msg_seq` 按锚点自增（1、2、3…，LRU 上限 512）；显式传入则覆盖并把计数推进到该值。平台上限是群聊 5 次、单聊 4 次，超出会被拒发。
+
+`msg_seq` 计数**按锚点全局共享**，不随 `Bot` 实例隔离：同一进程里多个 `Bot` 命中同一锚点会继续往下排，而不是各自从 1 重来。自己拼请求直连 `send_group_messages` 时，先登记一次就不会让后面的 `ctx.reply` 撞上 40054005：
+
+```python
+# 手工直连发过一条之后登记, 避免后面的 ctx.reply 撞上同一个序号
+seq = ctx.bot.next_msg_seq(anchor_id)
+
+# 或者用显式 seq_key, 与 ctx.reply(..., seq_key="q1") 共用一份计数
+seq = ctx.bot.next_msg_seq("shared", seq_key="q1")
+```
 
 只对这三个事件可回复：`GROUP_AT_MESSAGE_CREATE`、`GROUP_MESSAGE_CREATE`、`C2C_MESSAGE_CREATE`。
+
+`keyboard` 用来在**被动回复**里带按钮，不必绕开框架直连 `send_group_messages`：
+
+```python
+from qqbotsdk.app import callback, keyboard, row
+
+await ctx.reply("来答一道题", keyboard=keyboard(row(callback("选项 A", "a"))))
+```
 
 ## ctx.api（场景门面）
 
@@ -88,7 +106,7 @@ async def on_message(ctx: Context) -> None:
 | `send_markdown(content, *, keyboard=None)` | 主动 Markdown（`msg_type=2`） | 消息 id |
 | `send_card(*, title, description, url, pic_url)` | 图文卡片（`msg_type=8`，`tuwen`） | 消息 id |
 | `send_media(file_info, *, content="")` | 富媒体（`msg_type=7`） | 消息 id |
-| `reply(content, *, msg_seq=None)` | 被动回复，等价 `ctx.reply()` | 消息 id 或 `None` |
+| `reply(content, *, msg_seq=None, keyboard=None, seq_key=None)` | 被动回复，等价 `ctx.reply()` | 消息 id 或 `None` |
 | `recall(message_id)` | 撤回自己发的消息 | — |
 | `upload_image(path)` | 分片上传图片，返回 `file_info` | `file_info` |
 | `approve_join_request(member_openid=None, *, join_request_id=None)` | 通过入群申请（`member_openid` 默认取自事件） | — |

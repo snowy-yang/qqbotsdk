@@ -271,13 +271,31 @@ class SceneApi:
             body["content"] = content
         return await _send(scene, openid, body)
 
-    async def reply(self, content: str, *, msg_seq: int | None = None) -> str | None:
+    async def reply(
+        self,
+        content: str,
+        *,
+        msg_seq: int | None = None,
+        keyboard: Keyboard | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
         """被动回复一条文本消息, 直接委托 :meth:`Context.reply`.
 
         锚点(event_id 优先, 其次 msg_id)与 msg_seq 自增都在 Context / Bot 里,
         这里不重复实现; 不可回复的事件返回 None.
+
+        Args:
+            content: 文本内容.
+            msg_seq: 显式指定序号; 省略则由 Bot 按锚点自增.
+            keyboard: 内嵌键盘, 省略则不带键盘.
+            seq_key: 计数用的键, 省略时用锚点本身.
         """
-        return await self._ctx.reply(content, msg_seq=msg_seq)
+        return await self._ctx.reply(
+            content,
+            msg_seq=msg_seq,
+            keyboard=keyboard,
+            seq_key=seq_key,
+        )
 
     async def recall(self, message_id: str) -> None:
         """撤回一条消息: 群聊走群撤回接口, 单聊走单聊撤回接口."""

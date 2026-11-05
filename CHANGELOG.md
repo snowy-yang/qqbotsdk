@@ -3,6 +3,26 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- **`Intents.GROUP_MEMBER_EVENT` (1<<24)**：`GROUP_MEMBER_ADD` / `GROUP_MEMBER_REMOVE` / `GROUP_JOIN_REQUEST` 的订阅位。官方「事件订阅与通知」总表没有收录这一位（官方 botpy 至今也没有），此前只能 `Intents(1 << 24)` 手工构造，没有名字也没有类型保护。它不在 `DEFAULT_INTENTS` 里，需要时显式按位或
+- **`Context.reply(..., keyboard=...)` / `SceneApi.reply(..., keyboard=...)`**：被动回复支持内嵌键盘，不必再绕开框架直连 `send_group_messages` 才能发带按钮的消息
+- **`Context.reply(..., seq_key=...)` / `Bot.next_msg_seq(..., seq_key=...)`**：可以显式指定 msg_seq 计数用的键。自己拼请求直连发消息时先登记一次，之后的 `ctx.reply` 不会从 1 重来而撞 40054005
+- **会话注入**：`qqbotsdk.api.core` 新增 `get_session()` / `set_session()` / `reset_session()` / `use_session()`，`qqbotsdk.app.bot` 新增 `reset_msg_seq_cache()`。单测里整体替换会话即可让业务模块与 `ctx.api` 都走假服务端，不再需要猴补模块属性，也不会误连真实域名
+
+### 变更（行为）
+
+- **`msg_seq` 计数改为按锚点全局共享**：原先计数存在 `Bot` 实例上，同进程内多个 `Bot` 实例（分片 / 多机器人代管同一批会话）命中同一锚点会各自从 1 开始，平台按 `msg_id + msg_seq` 去重直接返回 40054005。现在是模块级计数，`Bot` 实例不持有该状态
+- **`qqbotsdk.api.core.session` 改为稳定转发代理**：`from ... import session` 的名字不再随注入变化，`async with session.get(...)` 等用法完全不变。注意代理只转发读取与调用，往 `session.xxx` 赋值不会写到真实会话上，改内部状态请用 `get_session()`
+
+### 修复
+
+- `docs/events.md` 把 `GROUP_MEMBER_ADD/REMOVE`、`GROUP_JOIN_REQUEST` 错归到 `GROUP_AND_C2C_EVENT (1<<25)` 名下，现已拆到 1<<24 一行
+- `docs/app.md` 补充被动回复的平台上限（群聊 5 次、单聊 4 次）与 `keyboard` 用法
+- `README.md` 新增「安装不完整怎么办」：`qqbotsdk` 是 PEP 420 隐式命名空间包，基座包缺 `.py` 时报的是 `No module named 'qqbotsdk.api.core'` 且 `pip check` 不报错，给出排查顺序与 `--no-cache-dir` 重装步骤
+
 ## [2.0.0] - 2026-11-02
 
 ### 变更（破坏性）

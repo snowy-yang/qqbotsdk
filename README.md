@@ -22,6 +22,25 @@ pip install "qqbotsdk-py[guild]"       # 核心 + 频道（一键）
 
 `base` 会被自动带上，无需单独安装。
 
+### 安装不完整怎么办
+
+`qqbotsdk` 是 **PEP 420 隐式命名空间包**（三包共用，没有 `__init__.py`）。这带来一个副作用：**基座包里任意一个 `.py` 文件没落盘，`pip check` 都不会报错**，而你看到的是：
+
+```
+ModuleNotFoundError: No module named 'qqbotsdk.api.core'
+```
+
+这个信息会误导你去查 `core` 模块，真实原因却是「安装不完整」。排查顺序：`qqbotsdk.api.core` 属于 `qqbotsdk-base-py`，所以该报错的实际含义是「基座包不在或不完整」——先 `pip show -f qqbotsdk-base-py` 确认 `core.py` 在不在文件列表里，再决定是否重装。
+
+2.0.0 版本直接重装即可（`--no-cache-dir` 绕开损坏的本地 wheel 缓存）：
+
+```bash
+pip uninstall -y qqbotsdk-py qqbotsdk-guild-py qqbotsdk-base-py
+pip install --no-cache-dir qqbotsdk-py
+```
+
+注意 `pip check` **无法**发现这类问题：它只校验发行包级别的依赖是否满足，不校验包内文件是否齐全。
+
 ## 鉴权
 
 在项目根目录的 `.env`（或环境变量）里配置机器人凭证，SDK 会自动换取并注入 `access_token`：
