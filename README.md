@@ -32,7 +32,7 @@ ModuleNotFoundError: No module named 'qqbotsdk.api.core'
 
 这个信息会误导你去查 `core` 模块，真实原因却是「安装不完整」。排查顺序：`qqbotsdk.api.core` 属于 `qqbotsdk-base-py`，所以该报错的实际含义是「基座包不在或不完整」——先 `pip show -f qqbotsdk-base-py` 确认 `core.py` 在不在文件列表里，再决定是否重装。
 
-2.0.0 版本直接重装即可（`--no-cache-dir` 绕开损坏的本地 wheel 缓存）：
+2.0.0 及 2.1.0 版本直接重装即可（`--no-cache-dir` 绕开损坏的本地 wheel 缓存）：
 
 ```bash
 pip uninstall -y qqbotsdk-py qqbotsdk-guild-py qqbotsdk-base-py

@@ -3,7 +3,7 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.1.0] - 2026-11-05
 
 ### 新增
 
@@ -22,6 +22,10 @@
 - `docs/events.md` 把 `GROUP_MEMBER_ADD/REMOVE`、`GROUP_JOIN_REQUEST` 错归到 `GROUP_AND_C2C_EVENT (1<<25)` 名下，现已拆到 1<<24 一行
 - `docs/app.md` 补充被动回复的平台上限（群聊 5 次、单聊 4 次）与 `keyboard` 用法
 - `README.md` 新增「安装不完整怎么办」：`qqbotsdk` 是 PEP 420 隐式命名空间包，基座包缺 `.py` 时报的是 `No module named 'qqbotsdk.api.core'` 且 `pip check` 不报错，给出排查顺序与 `--no-cache-dir` 重装步骤
+
+### 构建与发布
+
+- 三个发行包版本号统一由 2.0.0 升至 **2.1.0**，包间依赖约束同步收紧为 `>=2.1.0`（`qqbotsdk-py` 依赖 `qqbotsdk-base-py`，`qqbotsdk-guild-py` 依赖 `qqbotsdk-base-py`，`[guild]` extra 依赖 `qqbotsdk-guild-py`）
 
 ## [2.0.0] - 2026-11-02
 
@@ -156,7 +160,8 @@
 - **文档**：使用指南、API 参考、架构说明与可运行示例（`examples/`）
 - **测试**：纯逻辑单测 + 假网关 WebSocket 端到端 + Webhook 验签/去重端到端
 
-[Unreleased]: https://github.com/snowy-yang/qqbotsdk/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/snowy-yang/qqbotsdk/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.1.0
 [2.0.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.0.0
 [1.0.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v1.0.0
 [0.2.1]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v0.2.1
