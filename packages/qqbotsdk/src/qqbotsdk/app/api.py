@@ -29,6 +29,7 @@ from qqbotsdk.api import user as user_api
 from qqbotsdk.api.core import session
 from qqbotsdk.api.group import join_request as join_request_api
 from qqbotsdk.api.group import messages as group_messages
+from qqbotsdk.app.types import PreparedReply, Scene
 from qqbotsdk.errors import QQBotError
 from qqbotsdk.model.group.join_request import ReviewGroupJoinRequest
 from qqbotsdk.model.group.messages import (
@@ -52,10 +53,7 @@ from qqbotsdk.model.sub.upload import (
 from qqbotsdk.model.user.messages import SendUserMessagesRequest, UploadUserFileRequest
 
 if TYPE_CHECKING:
-    from qqbotsdk.app.context import Context, PreparedReply
-
-Scene = Literal["group", "c2c", "other"]
-"""场景: 群聊 / 单聊 / 其它(既没有群 OpenID 也没有单聊用户 OpenID)."""
+    from qqbotsdk.app.context import Context
 
 INTERACTION_EVENT: str = "INTERACTION_CREATE"
 """互动事件名."""

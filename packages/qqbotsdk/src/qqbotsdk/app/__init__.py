@@ -61,6 +61,7 @@ from qqbotsdk.app.keyboard import (
     only_users,
     row,
 )
+from qqbotsdk.app.types import PreparedReply, Scene
 
 __all__ = [
     "Bot",
@@ -69,6 +70,8 @@ __all__ = [
     "Handler",
     "KeyboardBuilder",
     "Middleware",
+    "PreparedReply",
+    "Scene",
     "SceneApi",
     "callback",
     "command",

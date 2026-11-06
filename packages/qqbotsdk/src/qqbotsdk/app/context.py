@@ -12,11 +12,12 @@ handler / 中间件都拿它当唯一入参, 并通过它回消息::
 回复的锚点与 msg_seq 规则见 :meth:`Context.build_reply`.
 """
 
-from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from qqbotsdk.api import user as user_api
 from qqbotsdk.api.group import messages as group_messages
-from qqbotsdk.app.api import Scene, SceneApi
+from qqbotsdk.app.api import SceneApi
+from qqbotsdk.app.types import PreparedReply, Scene
 from qqbotsdk.model.core import QQBotBaseModel
 from qqbotsdk.model.group.messages import SendGroupMessagesRequest
 from qqbotsdk.model.sub.messages import (
@@ -41,25 +42,6 @@ C2C_REPLY_EVENTS: Final = frozenset({"C2C_MESSAGE_CREATE"})
 
 # 纯文本消息
 TEXT_MESSAGE_TYPE: Final = 0
-
-
-class PreparedReply(NamedTuple):
-    """一条已经算好锚点、序号与 ``msg_type`` 的被动回复.
-
-    由 :meth:`Context.build_reply` 产出, 三个字段可以按位置解包::
-
-        scene, openid, request = ctx.build_reply(markdown="**hi**")
-
-    Attributes:
-        scene: 发送场景, ``"group"`` 或 ``"c2c"``.
-        openid: 目标群 / 用户的 openid.
-        request: 可以直接交给 ``send_group_messages`` / ``send_user_messages``
-            的请求模型.
-    """
-
-    scene: Scene
-    openid: str
-    request: SendGroupMessagesRequest | SendUserMessagesRequest
 
 
 def _str_field(data: Any, key: str) -> str | None:
