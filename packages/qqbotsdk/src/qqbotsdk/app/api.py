@@ -52,7 +52,7 @@ from qqbotsdk.model.sub.upload import (
 from qqbotsdk.model.user.messages import SendUserMessagesRequest, UploadUserFileRequest
 
 if TYPE_CHECKING:
-    from qqbotsdk.app.context import Context
+    from qqbotsdk.app.context import Context, PreparedReply
 
 Scene = Literal["group", "c2c", "other"]
 """场景: 群聊 / 单聊 / 其它(既没有群 OpenID 也没有单聊用户 OpenID)."""
@@ -294,6 +294,84 @@ class SceneApi:
             content,
             msg_seq=msg_seq,
             keyboard=keyboard,
+            seq_key=seq_key,
+        )
+
+    async def reply_markdown(
+        self,
+        content: str,
+        *,
+        keyboard: Keyboard | None = None,
+        msg_seq: int | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
+        """被动回复一条 Markdown 消息, 委托 :meth:`Context.reply_markdown`."""
+        return await self._ctx.reply_markdown(
+            content,
+            keyboard=keyboard,
+            msg_seq=msg_seq,
+            seq_key=seq_key,
+        )
+
+    async def reply_media(
+        self,
+        file_info: str,
+        *,
+        content: str | None = None,
+        keyboard: Keyboard | None = None,
+        msg_seq: int | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
+        """被动回复一条富媒体消息, 委托 :meth:`Context.reply_media`."""
+        return await self._ctx.reply_media(
+            file_info,
+            content=content,
+            keyboard=keyboard,
+            msg_seq=msg_seq,
+            seq_key=seq_key,
+        )
+
+    async def send_reply(
+        self,
+        *,
+        content: str | None = None,
+        markdown: str | MessageMarkdown | None = None,
+        media: str | MediaInfo | None = None,
+        card: MessageCard | None = None,
+        keyboard: Keyboard | None = None,
+        msg_seq: int | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
+        """一步完成「算锚点 + 发出去」, 委托 :meth:`Context.send_reply`."""
+        return await self._ctx.send_reply(
+            content=content,
+            markdown=markdown,
+            media=media,
+            card=card,
+            keyboard=keyboard,
+            msg_seq=msg_seq,
+            seq_key=seq_key,
+        )
+
+    def build_reply(
+        self,
+        *,
+        content: str | None = None,
+        markdown: str | MessageMarkdown | None = None,
+        media: str | MediaInfo | None = None,
+        card: MessageCard | None = None,
+        keyboard: Keyboard | None = None,
+        msg_seq: int | None = None,
+        seq_key: str | None = None,
+    ) -> PreparedReply | None:
+        """生成请求体但不发送, 委托 :meth:`Context.build_reply`."""
+        return self._ctx.build_reply(
+            content=content,
+            markdown=markdown,
+            media=media,
+            card=card,
+            keyboard=keyboard,
+            msg_seq=msg_seq,
             seq_key=seq_key,
         )
 

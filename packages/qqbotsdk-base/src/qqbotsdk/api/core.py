@@ -415,8 +415,24 @@ class QQBotSession:
         return self._ensure()
 
     async def request(self, method: str, url: str, **kwargs: Any) -> ClientResponse:
-        """返回已读取完成的响应, 便于需要自行处理状态码的场景."""
-        return await self._ensure().request(method, url, **kwargs)
+        """通用 verb 请求: 与 ``get`` / ``post`` 等完全同构, 同样走 429 重试.
+
+        ``method`` 可以是任意 HTTP verb, 便于按配置分发。行为与
+        ``get`` / ``post`` / ``put`` / ``patch`` / ``delete`` 一致:
+
+        - 命中 HTTP 429 时按 ``Retry-After`` / 指数退避自动重试, 最多
+          ``MAX_RETRIES`` 次;
+        - 非 2xx 抛 :class:`qqbotsdk.errors.QQBotAPIError`(OpenAPI 域名下);
+        - 返回的响应**未**读取 body, 调用方自己 ``await resp.json()`` 或
+          ``await resp.read()``, 用完由本方法的上下文管理器释放连接::
+
+            async with session.request("GET", "/users/@me") as resp:
+                data = await resp.json()
+
+        注意: 直接 ``await session.request(...)`` 拿到的响应不会自动释放,
+        与 aiohttp 原生语义一致, 建议一律用 ``async with``.
+        """
+        return await self._request_context(method, url, **kwargs)
 
     @property
     def closed(self) -> bool:

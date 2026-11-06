@@ -154,6 +154,31 @@ class InteractionCreateEvent(QQBotBaseModel):
         description="机器人 AppID",
     )
 
+    @property
+    def button_data(self) -> str | None:
+        """被点击按钮的 ``data`` 字段, 免去逐层钻 ``data.resolved``.
+
+        非按钮场景(快捷菜单用 ``feature_id``、消息反馈用 ``feedback_opt``)
+        也返回 ``resolved.button_data``, 平台在反馈场景下把回调数据放在这里.
+        """
+        resolved = self.data.resolved if self.data is not None else None
+        return resolved.button_data if resolved is not None else None
+
+    @property
+    def button_id(self) -> str | None:
+        """被点击按钮的 ``id`` 字段, 取不到时返回 None."""
+        resolved = self.data.resolved if self.data is not None else None
+        return resolved.button_id if resolved is not None else None
+
+    @property
+    def clicker_openid(self) -> str | None:
+        """点按钮的人的 openid: 群聊取 ``group_member_openid``, 单聊取 ``user_openid``.
+
+        这两个字段的域差异是每个 bot 都会踩一次的点, 这里统一成一个名字.
+        频道场景两者都没有, 返回 None(频道用 ``InteractionResolved.user_id``).
+        """
+        return self.group_member_openid or self.user_openid
+
 
 __all__ = [
     "InteractionAuthorizeData",

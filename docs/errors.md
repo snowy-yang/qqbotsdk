@@ -72,14 +72,45 @@ if isinstance(ws.last_error, QQBotGatewayError):
 
 ## 常见业务错误码
 
-| 错误码 | 含义 | 处理 |
-|---|---|---|
-| `22006` | 消息类型与内容不匹配 | 检查 `msg_type` 与 `content` |
-| `304004` | 无 ARK 模板权限 | 先申请模板 |
-| `304036` | 无 Markdown 模板权限 | 先申请模板 |
-| `304103` | 消息 ID 已过期，不能回复 | 被动回复窗口：群 5 分钟 / 单聊 60 分钟 |
-| `40034005` | 回复消息 `msg_id` 已过期 | 同上 |
-| `40054005` | 消息被去重 | 递增 `msg_seq`（`ctx.reply()` 已自动处理） |
-| `40034100` | 主动消息超频控 | 降低发送频率 |
-| `1100301` | 调用方不是群成员 | 先把机器人拉进群 |
-| `304019` | @全体成员次数超限 | 每群每天 1 次 |
+`err_code` 与 HTTP 状态码是两套东西：HTTP 200 也可能带非零 `err_code`。**不要用
+`message` 判断失败**（平台随时调整文案），一律看 `err_code`。
+
+SDK 提供了常量模块 `qqbotsdk.errors.codes`，不用再写魔法数字：
+
+```python
+from qqbotsdk.errors import QQBotAPIError, codes
+
+try:
+    await ctx.reply("...")
+except QQBotAPIError as exc:
+    if exc.err_code == codes.MSG_DEDUPLICATED:
+        ...  # 40054005
+    elif exc.err_code == codes.EVENT_NOT_REPLYABLE:
+        ...  # 40034027
+```
+
+| 常量 | 错误码 | 含义 | 处理 |
+|---|---|---|---|
+| `MSG_TYPE_MISMATCH` | `22006` | 消息类型与内容不匹配 | 检查 `msg_type` 与内容字段（2.x 已自动推导） |
+| `MSG_TYPE_INVALID` | `340069` | 消息类型无效 | 检查 `msg_type` 取值 |
+| `MSG_CONTENT_INVALID` | `304061` | 消息内容无效 | 检查消息格式 |
+| `MSG_ID_EXPIRED_ALT` | `304103` | 消息 ID 已过期，不能回复 | 被动回复窗口：群 5 分钟 / 单聊 60 分钟 |
+| `MSG_ID_EXPIRED` | `40034005` | 回复消息 `msg_id` 已过期 | 同上 |
+| `EVENT_ID_INVALID` | `40034025` | `event_id` 无效或越权 | 检查锚点是否取错 |
+| `EVENT_ID_EXPIRED` | `40034026` | `event_id` 已过期 | 收到事件后尽快回复 |
+| `EVENT_NOT_REPLYABLE` | `40034027` | 该事件不支持回复消息 | 例如 `GROUP_MEMBER_ADD` 只能发主动消息 |
+| `MSG_DEDUPLICATED` | `40054005` | 消息被去重 | 递增 `msg_seq`（`ctx.reply()` 已自动处理） |
+| `MSG_PASSIVE_LIMIT` | `40034128` | 被动回复时间/次数超限 | 群聊 5 次、单聊 4 次 |
+| `MSG_ACTIVE_RATE_LIMITED` | `40034100` | 主动消息超频控 | 降低发送频率 |
+| `BOT_NOT_IN_GROUP` | `40054003` | 机器人不是群成员 | 先把机器人拉进群 |
+| `BOT_MUTED` | `40054002` | 机器人被禁言 | 等解禁 |
+| `APP_PRIVILEGE_NOT_PASS` | `11253` | 应用未获得该接口权限 | 向平台申请 |
+| `MEDIA_TRANSFER_FAILED` | `40034004` | 富媒体转存失败 | 可重试 |
+
+另外 `MSG_LENGTH_EXCEEDED`（`40054007`）、`MSG_URL_NOT_ALLOWED`（`40054010`）、
+`BOT_OFFLINE`（`40054016`）、`FILE_INFO_INVALID`（`304080`）与几条应用级错误码
+也在这个模块里，完整列表见源码。
+
+> `GROUP_FILE_NO_PERMISSION`（`40093005`）与 `QQ_STREAM_FETCH_FAILED`（`40093007`）
+> 未收录在官方公共错误码表中，来自真实 bot 的调用日志，平台可能调整，**不要当成
+> 稳定契约**。

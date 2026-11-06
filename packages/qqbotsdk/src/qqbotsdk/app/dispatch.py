@@ -121,11 +121,16 @@ class Dispatcher:
             return wildcard
         return [*self._handlers.get(event_name, ()), *wildcard]
 
-    def submit(self, context: Context) -> None:
-        """把一次事件处理丢进独立任务, 不阻塞 WebSocket 收包循环."""
+    def submit(self, context: Context) -> asyncio.Task[None]:
+        """把一次事件处理丢进独立任务, 不阻塞 WebSocket 收包循环.
+
+        Returns:
+            正在处理该事件的任务, 调用方可以 ``await`` 它在测试里等处理完成.
+        """
         task = asyncio.create_task(self._run(context), name=TASK_NAME)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        return task
 
     async def cancel_tasks(self) -> None:
         """取消并回收全部未完成的处理任务, 可重复调用.

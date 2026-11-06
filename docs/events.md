@@ -43,7 +43,29 @@ intents = Intents.GROUP_AND_C2C_EVENT | Intents.PUBLIC_GUILD_MESSAGES
 
 `DEFAULT_INTENTS` = `GROUP_AND_C2C_EVENT | PUBLIC_GUILD_MESSAGES | GUILD_MEMBERS | INTERACTION`。
 
-订阅了无权限的 intents，网关会断开（关闭码 4013/4014）。
+只做群聊 / 单聊时用 `GROUP_BOT_INTENTS` = `GROUP_AND_C2C_EVENT | INTERACTION`，不含
+任何频道位。`GUILD_MEMBERS` / `PUBLIC_GUILD_MESSAGES` 按官方说明是「基础事件、默认有
+权限」，所以 `DEFAULT_INTENTS` 本身不会导致连接被拒；真正需要申请的是 `INTERACTION`
+（消息按钮 / 快捷菜单）。
+
+订阅了无权限的 intents，网关会断开（关闭码 4013/4014）；现在的异常文案会指明是
+intents 权限问题，并提示去开放平台开通。
+
+### 用 `INTENTS` 环境变量收窄订阅
+
+不重新发版也能调整订阅范围，优先级 `Bot(intents=...)` > `INTENTS` > `DEFAULT_INTENTS`：
+
+```ini
+INTENTS=0x2000000          # 10 进制或 0x 十六进制掩码
+```
+
+```python
+from qqbotsdk.app import Bot
+from qqbotsdk.app.bot import resolve_intents
+
+bot = Bot()  # 读 INTENTS
+print(resolve_intents())  # 看看最终生效的掩码
+```
 
 > **注意 `GROUP_MEMBER_EVENT` (1<<24)**：官方「事件订阅与通知」总表没有收录这一位，
 > 但 [群成员加入](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_member_add.html)
@@ -62,6 +84,24 @@ intents = Intents.GROUP_AND_C2C_EVENT | Intents.PUBLIC_GUILD_MESSAGES
 |---|---|---|
 | `qqbotsdk.model.event` | 16 | `qqbotsdk-py`：群聊 / 单聊 / 好友 / 订阅消息 / 互动 |
 | `qqbotsdk.model.guild.event` | 40 | `qqbotsdk-guild-py`：频道 / 子频道 / 消息 / 成员 / 表情表态 / 审核 / 论坛 / 音频 |
+
+## 常用便捷属性
+
+几个「每个 bot 都要踩一次」的字段差异，SDK 已经归一：
+
+| 属性 | 所在模型 | 作用 |
+|---|---|---|
+| `sender_openid` | `GroupMessageEventBase` / `C2CMessageCreateEvent` | 群聊取 `author.member_openid`，单聊取 `author.user_openid`，自动回退 |
+| `button_data` | `InteractionCreateEvent` | 免去逐层钻 `data.resolved.button_data` |
+| `button_id` | `InteractionCreateEvent` | 被点击按钮的 `id` |
+| `clicker_openid` | `InteractionCreateEvent` | 群聊取 `group_member_openid`，单聊取 `user_openid` |
+
+```python
+@bot.on("INTERACTION_CREATE")
+async def on_click(ctx: Context) -> None:
+    print(ctx.event.button_data, ctx.event.clicker_openid)
+    await ctx.api.ack_interaction(0)
+```
 
 ```python
 from qqbotsdk.model.event import EVENT_MODELS, parse_event
@@ -103,4 +143,17 @@ async def on_message(ctx: Context) -> None:
 async def on_any(ctx: Context) -> None:
     if ctx.event is None:
         print("未建模事件:", ctx.event_name, ctx.payload.d)
+```
+
+## 不连网关做测试
+
+`Bot.dispatch()` 是公开方法，可以把一帧直接喂给 bot，无需假网关服务端；
+`qqbotsdk.testing` 提供了更顺手的包装：
+
+```python
+from qqbotsdk.testing import dispatch, dispatch_frame, make_payload
+
+await dispatch(bot, "GROUP_AT_MESSAGE_CREATE", {"id": "m1", "content": "hi"})
+await dispatch_frame(bot, '{"op": 0, "t": "READY", "d": {}}')  # 直接贴网关日志
+payload = make_payload("GROUP_AT_MESSAGE_CREATE", {...}, event_id=None)  # 验证回退分支
 ```

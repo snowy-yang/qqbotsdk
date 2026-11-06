@@ -8,13 +8,23 @@
     +-- QQBotGatewayError       WebSocket 网关层错误
 
 调用方 ``except QQBotError`` 可以兜住全部错误, 也可以按层分别处理.
+
+业务错误码常量见子模块 :mod:`qqbotsdk.errors.codes`::
+
+    from qqbotsdk.errors import QQBotAPIError, codes
+
+    if exc.err_code == codes.MSG_DEDUPLICATED:
+        ...
 """
+
+from qqbotsdk.errors import codes
 
 __all__ = [
     "QQBotAPIError",
     "QQBotAuthError",
     "QQBotError",
     "QQBotGatewayError",
+    "codes",
 ]
 
 

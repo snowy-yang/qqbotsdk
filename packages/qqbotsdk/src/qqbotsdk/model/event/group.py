@@ -214,6 +214,18 @@ class GroupMessageEventBase(QQBotBaseModel):
         description="消息元素列表，message_type=103 引用消息时包含被引用内容",
     )
 
+    @property
+    def sender_openid(self) -> str | None:
+        """发送者的 openid, 不用自己判断该取哪个字段.
+
+        群聊场景取 ``author.member_openid``, 没有则回退 ``author.user_openid``,
+        最后才回退 ``author.id``; 取不到时返回 None.
+        """
+        author = self.author
+        if author is None:
+            return None
+        return author.member_openid or author.user_openid or author.id
+
 
 class GroupAtMessageCreateEvent(GroupMessageEventBase):
     """用户在群里@机器人发送消息 (GROUP_AT_MESSAGE_CREATE)."""

@@ -3,7 +3,6 @@
 import json
 
 import pytest
-from pydantic import ValidationError
 
 from qqbotsdk.app import (
     KeyboardBuilder,
@@ -232,6 +231,12 @@ def test_keyboard_can_be_used_in_send_request() -> None:
     assert request.keyboard.content.rows[0].buttons[0].action.data == "/signin"
 
 
-def test_validation_error_on_too_long_label() -> None:
-    with pytest.raises(ValidationError):
-        callback("这是一个超过十个字符的按钮文案", "/x")
+def test_long_label_is_accepted() -> None:
+    """超过 10 字符的 label 不再被 SDK 拦下: 平台会自己裁剪.
+
+    业务上常见用热词 / 标题直接当按钮文案, 之前会被 ValidationError 卡死,
+    下游只能二选一: 截断业务数据, 或者放弃类型化 API 裸发请求体.
+    """
+    button = callback("这是一个超过十个字符的按钮文案", "/x")
+    assert button.render_data is not None
+    assert button.render_data.label == "这是一个超过十个字符的按钮文案"

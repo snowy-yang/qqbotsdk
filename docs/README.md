@@ -60,6 +60,7 @@ bot.run()
 | [api/guild.md](api/guild.md) | 频道、子频道、成员、身份组、消息、表情表态、公告、精华、日程、论坛、私信、音频 |
 | [ws.md](ws.md) | 底层网关客户端：心跳、重连、Resume、关闭码 |
 | [errors.md](errors.md) | 三级错误体系、429 重试、错误码排查 |
+| [migration-2.0.md](migration-2.0.md) | **0.x / 1.x → 2.x 迁移指南**：逐条代码对照 |
 | [examples.md](examples.md) | 可直接运行的示例清单 |
 
 ## 目录分层

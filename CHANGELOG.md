@@ -3,6 +3,29 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- **被动回复补齐 Markdown / 富媒体 / 卡片**：`Context.reply_markdown()`、`Context.reply_media()`、`Context.send_reply()`、`Context.build_reply()`（`SceneApi` 同名转发）。此前 `ctx.reply()` 只支持纯文本，`SceneApi.send_*` 全是主动消息，中间那层是空的——发「带按钮的 Markdown 题面」只能绕开框架手拼 `SendGroupMessagesRequest`。现在四种内容共用同一套锚点与 `msg_seq` 逻辑
+- **`msg_type` 自动推导与内容互斥校验**：`SendGroupMessagesRequest` / `SendUserMessagesRequest` 继承新的 `MessageSendRequestBase`，按填入的内容字段推导 `msg_type`（`content`→0、`markdown`→2、`input_notify`→6、`media`→7、`card`→8），并把 `markdown`/`media`/`card`/`input_notify` 四者互斥、`content` 与 `markdown` 互斥从 docstring 变成真校验。此前 `SendGroupMessagesRequest(markdown=...)` 的 `msg_type` 是 `None`，语义全靠平台默认推断
+- **`qqbotsdk.errors.codes`**：业务错误码常量模块（`MSG_DEDUPLICATED`、`EVENT_NOT_REPLYABLE`、`MSG_ID_EXPIRED`、`APP_PRIVILEGE_NOT_PASS` 等），`errors` 由模块改为包。下游不用再写魔法数字
+- **事件便捷属性**：`sender_openid`（`GroupMessageEventBase` / `C2CMessageCreateEvent`，自动在 `member_openid` / `user_openid` / `id` 之间回退）、`InteractionCreateEvent.button_data` / `.button_id` / `.clicker_openid`
+- **`GROUP_BOT_INTENTS`**：只做群聊 / 单聊时的订阅位预设（`GROUP_AND_C2C_EVENT | INTERACTION`），不含任何频道位
+- **`INTENTS` 环境变量恢复**：优先级 `Bot(intents=...)` > `INTENTS`（十进制或 `0x` 十六进制）> `DEFAULT_INTENTS`，运维可不发版收窄订阅。同时新增只读属性 `Bot.intents` 便于确认最终生效值
+- **`Bot.dispatch()` 与 `qqbotsdk.testing`**：公开的「喂一帧」入口，配合 `make_payload` / `dispatch_frame` / `parse_frame`，单元测试不需要再造假网关或假 registrar；与 `api.core.use_session` 一起构成完整离网测试面
+- **`docs/migration-2.0.md`**：0.x / 1.x → 2.x 逐条代码对照迁移指南，含自查清单
+
+### 变更（行为）
+
+- `QQBotSession.request()` 改为与 `get` / `post` 等完全同构，**同样走 429 重试**；此前它裸走 aiohttp，是唯一绕过重试的入口。返回值仍是未读取 body 的响应，建议用 `async with`
+- `RenderData.label` 不再校验 `max_length=10`：超长 label 会被平台裁剪，SDK 拦下只会逼下游二选一（截断业务数据或放弃类型化 API）。热词 / 标题直接当按钮文案不再 `ValidationError`
+
+### 修复
+
+- 网关致命关闭码 4013 / 4014 的异常文案补充原因与处置建议（intents 未开通、去开放平台申请或改用 `GROUP_BOT_INTENTS`），不再只有「网关拒绝连接，不可重连」
+- `README.md` 补充 pyright 报 `Import "qqbotsdk.app" could not be resolved` 的排查说明（venv 未配置，与安装无关）
+
 ## [2.1.0] - 2026-11-05
 
 ### 新增

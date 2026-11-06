@@ -63,6 +63,18 @@ class C2CMessageCreateEvent(QQBotBaseModel):
         description="消息元素列表，message_type=103 引用消息时包含被引用内容",
     )
 
+    @property
+    def sender_openid(self) -> str | None:
+        """发送者的 openid, 不用自己判断该取哪个字段.
+
+        单聊场景取 ``author.user_openid``, 没有则回退 ``author.member_openid``,
+        最后才回退 ``author.id``; 取不到时返回 None.
+        """
+        author = self.author
+        if author is None:
+            return None
+        return author.user_openid or author.member_openid or author.id
+
 
 class C2CMsgReceiveEvent(QQBotBaseModel):
     """用户在机器人资料卡开启主动消息推送 (C2C_MSG_RECEIVE)."""

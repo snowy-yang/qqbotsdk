@@ -6,18 +6,25 @@ handler / 中间件都拿它当唯一入参, 并通过它回消息::
     @bot.on_message()
     async def echo(ctx: Context) -> None:
         await ctx.reply(ctx.event.content or "")
+        await ctx.reply_markdown("## 标题\\n正文", keyboard=kb)
+        await ctx.reply_media(file_info, content="看图")
 
-回复的锚点规则见 :meth:`Context.reply`.
+回复的锚点与 msg_seq 规则见 :meth:`Context.build_reply`.
 """
 
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
 
 from qqbotsdk.api import user as user_api
 from qqbotsdk.api.group import messages as group_messages
-from qqbotsdk.app.api import SceneApi
+from qqbotsdk.app.api import Scene, SceneApi
 from qqbotsdk.model.core import QQBotBaseModel
 from qqbotsdk.model.group.messages import SendGroupMessagesRequest
-from qqbotsdk.model.sub.messages import Keyboard
+from qqbotsdk.model.sub.messages import (
+    Keyboard,
+    MediaInfo,
+    MessageCard,
+    MessageMarkdown,
+)
 from qqbotsdk.model.user.messages import SendUserMessagesRequest
 from qqbotsdk.ws.payload import GatewayPayload
 
@@ -36,6 +43,25 @@ C2C_REPLY_EVENTS: Final = frozenset({"C2C_MESSAGE_CREATE"})
 TEXT_MESSAGE_TYPE: Final = 0
 
 
+class PreparedReply(NamedTuple):
+    """一条已经算好锚点、序号与 ``msg_type`` 的被动回复.
+
+    由 :meth:`Context.build_reply` 产出, 三个字段可以按位置解包::
+
+        scene, openid, request = ctx.build_reply(markdown="**hi**")
+
+    Attributes:
+        scene: 发送场景, ``"group"`` 或 ``"c2c"``.
+        openid: 目标群 / 用户的 openid.
+        request: 可以直接交给 ``send_group_messages`` / ``send_user_messages``
+            的请求模型.
+    """
+
+    scene: Scene
+    openid: str
+    request: SendGroupMessagesRequest | SendUserMessagesRequest
+
+
 def _str_field(data: Any, key: str) -> str | None:
     """从事件的原始 ``d`` 里取一个非空字符串字段, 取不到时返回 None."""
     if not isinstance(data, dict):
@@ -47,31 +73,62 @@ def _str_field(data: Any, key: str) -> str | None:
     return None
 
 
-def _request_body(
-    content: str,
+def _markdown_of(markdown: str | MessageMarkdown | None) -> MessageMarkdown | None:
+    """把 Markdown 文本包装成模型; 已经是模型就原样返回."""
+    if markdown is None or isinstance(markdown, MessageMarkdown):
+        return markdown
+    return MessageMarkdown.model_validate({"content": markdown})
+
+
+def _media_of(media: str | MediaInfo | None) -> MediaInfo | None:
+    """把 ``file_info`` 包装成模型; 已经是模型就原样返回."""
+    if media is None or isinstance(media, MediaInfo):
+        return media
+    return MediaInfo.model_validate({"file_info": media})
+
+
+def _reply_body(
     *,
+    content: str | None,
+    markdown: str | MessageMarkdown | None,
+    media: str | MediaInfo | None,
+    card: MessageCard | None,
+    keyboard: Keyboard | None,
     event_id: str | None,
     msg_id: str | None,
     msg_seq: int | None,
-    keyboard: Keyboard | None = None,
 ) -> dict[str, Any]:
-    """拼纯文本消息的请求体.
+    """拼被动回复的请求体.
 
     ``event_id`` 与 ``msg_id`` 互斥: 有事件 ID 时只填 ``event_id``, 否则才填
     ``msg_id``; 主动消息两者都不填.
 
+    ``msg_type`` 不在这里写死, 交给 ``SendXxxMessagesRequest`` 按填了哪个内容
+    字段推导(见 :class:`qqbotsdk.model.sub.messages.MessageSendRequestBase`),
+    这样 Markdown / 富媒体 / 卡片都走同一条路径.
+
     用字典加 ``model_validate`` 而不是直接构造 ``SendXxxMessagesRequest``,
     因为 pyright 识别不到那些 ``Field(None, ...)`` 的默认值, 直接构造会报错.
     """
-    body: dict[str, Any] = {"msg_type": TEXT_MESSAGE_TYPE, "content": content}
+    body: dict[str, Any] = {}
+    if content is not None:
+        body["content"] = content
+    resolved_markdown = _markdown_of(markdown)
+    if resolved_markdown is not None:
+        body["markdown"] = resolved_markdown
+    resolved_media = _media_of(media)
+    if resolved_media is not None:
+        body["media"] = resolved_media
+    if card is not None:
+        body["card"] = card
+    if keyboard is not None:
+        body["keyboard"] = keyboard
     if event_id is not None:
         body["event_id"] = event_id
     elif msg_id is not None:
         body["msg_id"] = msg_id
     if msg_seq is not None:
         body["msg_seq"] = msg_seq
-    if keyboard is not None:
-        body["keyboard"] = keyboard
     return body
 
 
@@ -156,7 +213,7 @@ class Context:
             message_id = _str_field(self.payload.d, "id")
         return event_id, message_id
 
-    def _reply_target(self) -> tuple[str, str] | None:
+    def _reply_target(self) -> tuple[Scene, str] | None:
         """被动回复的目标: 返回 ``(场景, openid)``, 不可回复时返回 None."""
         event_name = self.payload.t or ""
         if event_name in GROUP_REPLY_EVENTS:
@@ -167,23 +224,29 @@ class Context:
         if event_name in C2C_REPLY_EVENTS:
             user_openid = self.user_openid
             if user_openid:
-                return "user", user_openid
+                return "c2c", user_openid
             return None
         return None
 
-    async def reply(
+    def build_reply(
         self,
-        content: str,
         *,
-        msg_seq: int | None = None,
+        content: str | None = None,
+        markdown: str | MessageMarkdown | None = None,
+        media: str | MediaInfo | None = None,
+        card: MessageCard | None = None,
         keyboard: Keyboard | None = None,
+        msg_seq: int | None = None,
         seq_key: str | None = None,
-    ) -> str | None:
-        """被动回复一条文本消息, 返回新消息 id.
+    ) -> PreparedReply | None:
+        """生成一条被动回复的请求体, **不发送**.
 
-        只支持消息类事件: ``GROUP_AT_MESSAGE_CREATE`` / ``GROUP_MESSAGE_CREATE``
-        走群聊接口(目标取 ``d.group_openid``), ``C2C_MESSAGE_CREATE`` 走单聊接口
-        (目标取 ``d.author.user_openid``); 其它事件返回 None.
+        锚点、``msg_seq``、``msg_type`` 全部由 SDK 算好, 调用方拿到就能直接发::
+
+            prepared = ctx.build_reply(markdown="**hi**", keyboard=kb)
+            if prepared is not None:
+                scene, openid, request = prepared
+                await group_messages.send_group_messages(openid, request)
 
         锚点规则是**事件 ID 优先**:
 
@@ -196,15 +259,22 @@ class Context:
         传了则以传入值为准, 并把该锚点的计数推进到该值. 平台上限是群聊 5 次、
         单聊 4 次, 超出会被拒发.
 
-        ``keyboard`` 是内嵌键盘(可带按钮), 省略则不带键盘. 群聊与单聊共用同一种
-        键盘结构, 因此这里直接透传; 用它就能在被动回复里带上按钮而不用绕开框架
-        直连 ``send_group_messages``::
+        Args:
+            content: 纯文本内容. 与 ``markdown`` 互斥, 但可以和 ``media`` 共存
+                作为富媒体的附带文本.
+            markdown: Markdown 文本, 或已构造好的 ``MessageMarkdown``.
+            media: 上传接口返回的 ``file_info``, 或已构造好的 ``MediaInfo``.
+            card: 图文卡片模型.
+            keyboard: 内嵌键盘(可带按钮).
+            msg_seq: 显式指定序号; 省略则按锚点自增.
+            seq_key: 计数用的键, 省略时用锚点本身.
 
-            await ctx.reply("来答题", keyboard=keyboard)
+        Returns:
+            算好的 :class:`PreparedReply`; 当前事件不可被动回复时返回 None.
 
-        ``seq_key`` 只影响计数用哪个键, 省略时用锚点本身. 如果你自己拼请求直连
-        ``send_group_messages`` 发过一条被动回复, 先 ``bot.next_msg_seq(锚点)``
-        登记, 或把那次也算成同一个 ``seq_key``, 就不会撞上 40054005.
+        Raises:
+            ValueError: 当前事件不可被动回复 **且** 传了无法自洽的内容组合
+                (互斥校验由请求模型负责, 见 ``MessageSendRequestBase``).
         """
         target = self._reply_target()
         if target is None:
@@ -214,14 +284,121 @@ class Context:
         if anchor is None:
             return None
         seq = self.bot.next_msg_seq(anchor, msg_seq, seq_key=seq_key)
-        body = _request_body(
-            content,
+        body = _reply_body(
+            content=content,
+            markdown=markdown,
+            media=media,
+            card=card,
+            keyboard=keyboard,
             event_id=event_id,
             msg_id=None if event_id is not None else message_id,
             msg_seq=seq,
-            keyboard=keyboard,
         )
-        return await _send_to(*target, body)
+        scene, openid = target
+        return PreparedReply(
+            scene=scene,
+            openid=openid,
+            request=_make_request(scene, body),
+        )
+
+    async def send_reply(
+        self,
+        *,
+        content: str | None = None,
+        markdown: str | MessageMarkdown | None = None,
+        media: str | MediaInfo | None = None,
+        card: MessageCard | None = None,
+        keyboard: Keyboard | None = None,
+        msg_seq: int | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
+        """一步完成「算锚点 + 发出去」, 返回新消息 id.
+
+        参数与 :meth:`build_reply` 完全一致, 只是顺手发送. 不可被动回复的事件
+        返回 None.
+        """
+        prepared = self.build_reply(
+            content=content,
+            markdown=markdown,
+            media=media,
+            card=card,
+            keyboard=keyboard,
+            msg_seq=msg_seq,
+            seq_key=seq_key,
+        )
+        if prepared is None:
+            return None
+        return await _post(prepared.scene, prepared.openid, prepared.request)
+
+    async def reply(
+        self,
+        content: str,
+        *,
+        msg_seq: int | None = None,
+        keyboard: Keyboard | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
+        """被动回复一条纯文本消息, 返回新消息 id.
+
+        等价于 ``send_reply(content=...)``; 规则见 :meth:`build_reply`.
+        需要 Markdown / 富媒体 / 卡片时用 :meth:`reply_markdown` /
+        :meth:`reply_media` / :meth:`send_reply`.
+        """
+        return await self.send_reply(
+            content=content,
+            keyboard=keyboard,
+            msg_seq=msg_seq,
+            seq_key=seq_key,
+        )
+
+    async def reply_markdown(
+        self,
+        content: str,
+        *,
+        keyboard: Keyboard | None = None,
+        msg_seq: int | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
+        """被动回复一条 Markdown 消息(``msg_type=2``), 返回新消息 id.
+
+        Args:
+            content: Markdown 文本.
+            keyboard: 内嵌键盘, 按钮一般挂在 Markdown 消息上.
+            msg_seq: 显式指定序号; 省略则按锚点自增.
+            seq_key: 计数用的键, 省略时用锚点本身.
+        """
+        return await self.send_reply(
+            markdown=content,
+            keyboard=keyboard,
+            msg_seq=msg_seq,
+            seq_key=seq_key,
+        )
+
+    async def reply_media(
+        self,
+        file_info: str,
+        *,
+        content: str | None = None,
+        keyboard: Keyboard | None = None,
+        msg_seq: int | None = None,
+        seq_key: str | None = None,
+    ) -> str | None:
+        """被动回复一条富媒体消息(``msg_type=7``), 返回新消息 id.
+
+        Args:
+            file_info: 上传接口返回的 ``file_info``.
+            content: 附带的说明文本, 省略则只发媒体.
+            keyboard: 内嵌键盘.
+            msg_seq: 显式指定序号; 省略则按锚点自增.
+            seq_key: 计数用的键, 省略时用锚点本身.
+        """
+        return await self.send_reply(
+            media=file_info,
+            content=content,
+            keyboard=keyboard,
+            msg_seq=msg_seq,
+            seq_key=seq_key,
+        )
 
     async def send(self, content: str) -> str | None:
         """发一条主动消息(不带 ``event_id`` / ``msg_id``), 返回新消息 id.
@@ -230,30 +407,53 @@ class Context:
         主动消息受平台推送频次限制, 能用 :meth:`reply` 就不要用这个.
         """
         openid: str | None = None
-        scene = "group"
+        scene: Scene = "group"
         group_openid = self.group_openid
         if group_openid:
             openid = group_openid
         else:
-            scene = "user"
+            scene = "c2c"
             openid = self.user_openid
         if not openid:
             return None
-        body = _request_body(content, event_id=None, msg_id=None, msg_seq=None)
-        return await _send_to(scene, openid, body)
+        body = _reply_body(
+            content=content,
+            markdown=None,
+            media=None,
+            card=None,
+            keyboard=None,
+            event_id=None,
+            msg_id=None,
+            msg_seq=None,
+        )
+        return await _post(scene, openid, _make_request(scene, body))
 
 
-async def _send_to(scene: str, openid: str, body: dict[str, Any]) -> str:
+def _make_request(
+    scene: Scene,
+    body: dict[str, Any],
+) -> SendGroupMessagesRequest | SendUserMessagesRequest:
+    """按场景把请求体校验成对应的请求模型."""
+    if scene == "group":
+        return SendGroupMessagesRequest.model_validate(body)
+    return SendUserMessagesRequest.model_validate(body)
+
+
+async def _post(
+    scene: Scene,
+    openid: str,
+    request: SendGroupMessagesRequest | SendUserMessagesRequest,
+) -> str:
     """按场景调用群聊或单聊发送接口, 返回新消息 id."""
     if scene == "group":
         response = await group_messages.send_group_messages(
             openid,
-            SendGroupMessagesRequest.model_validate(body),
+            cast("SendGroupMessagesRequest", request),
         )
         return response.id
     user_response = await user_api.send_user_messages(
         openid,
-        SendUserMessagesRequest.model_validate(body),
+        cast("SendUserMessagesRequest", request),
     )
     return user_response.id
 
@@ -262,4 +462,5 @@ __all__ = [
     "C2C_REPLY_EVENTS",
     "GROUP_REPLY_EVENTS",
     "Context",
+    "PreparedReply",
 ]

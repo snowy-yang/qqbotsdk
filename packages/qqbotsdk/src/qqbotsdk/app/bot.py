@@ -26,6 +26,7 @@
 """
 
 import asyncio
+import os
 from collections.abc import Callable
 from typing import Final
 
@@ -47,6 +48,13 @@ from qqbotsdk.ws.payload import GatewayPayload, OpCode
 MSG_SEQ_CACHE_LIMIT: Final = 512
 """msg_seq 缓存的最大锚点数, 超出后淘汰最久未使用的锚点."""
 
+INTENTS_ENV: Final = "INTENTS"
+"""环境变量名: 用十进制或 ``0x`` 十六进制掩码覆盖订阅位, 优先于代码里的默认值.
+
+运维可以在不重新发版的情况下收窄订阅(例如临时关掉某个需要权限的事件位),
+避免因 intents 无权限导致网关卡在 4013/4014.
+"""
+
 # 被动回复锚点(事件 ID 或消息 ID) -> 已用到的最大 msg_seq.
 # 放模块级而不是 Bot 实例上: 平台只认「msg_id + msg_seq」是否重复, 与是哪个 Bot
 # 实例发的无关. 多实例(分片 / 多机器人代管同一批会话)共用一份计数才不会各自从 1
@@ -67,11 +75,40 @@ def _remember_msg_seq(key: str, seq: int) -> None:
         _MSG_SEQ_CACHE.pop(next(iter(_MSG_SEQ_CACHE)))
 
 
+def resolve_intents(intents: Intents | None = None) -> Intents:
+    """决定本次使用的订阅位: 显式入参 > ``INTENTS`` 环境变量 > ``DEFAULT_INTENTS``.
+
+    Args:
+        intents: 代码里显式指定的订阅位, 传了就直接用, 不读环境变量.
+
+    Returns:
+        最终生效的 :class:`Intents`.
+
+    Raises:
+        ValueError: ``INTENTS`` 环境变量不是合法的十进制 / ``0x`` 十六进制掩码.
+    """
+    if intents is not None:
+        return intents
+    raw = os.getenv(INTENTS_ENV, "").strip()
+    if not raw:
+        return DEFAULT_INTENTS
+    try:
+        mask = int(raw, 0)  # 十进制或 0x 十六进制
+    except ValueError:
+        raise ValueError(
+            f"{INTENTS_ENV} 应为十进制或 0x 十六进制掩码，实际: {raw!r}"
+        ) from None
+    if mask < 0:
+        raise ValueError(f"{INTENTS_ENV} 不能为负数，实际: {mask}")
+    return Intents(mask)
+
+
 class Bot:
     """把网关连接和事件注册表绑在一起的机器人实例.
 
     Args:
-        intents: 订阅的事件位, 默认 ``DEFAULT_INTENTS``.
+        intents: 订阅的事件位. 省略时依次回退到 ``INTENTS`` 环境变量(十进制或
+            ``0x`` 十六进制掩码)与 ``DEFAULT_INTENTS``, 见 :func:`resolve_intents`.
         url: 网关地址, 省略时由 ``QQBotWebSocket`` 在每次连接前自动获取.
         auto_reconnect: 断线后是否自动重连.
     """
@@ -79,17 +116,22 @@ class Bot:
     def __init__(
         self,
         *,
-        intents: Intents = DEFAULT_INTENTS,
+        intents: Intents | None = None,
         url: str | None = None,
         auto_reconnect: bool = True,
     ) -> None:
-        self._intents = intents
+        self._intents = resolve_intents(intents)
         self._url = url
         self._auto_reconnect = auto_reconnect
         self._dispatcher = Dispatcher()
         self._ws: QQBotWebSocket | None = None
         self._stop_event = asyncio.Event()
         self._running = False
+
+    @property
+    def intents(self) -> Intents:
+        """当前生效的订阅位(已解析环境变量与默认值)."""
+        return self._intents
 
     def __repr__(self) -> str:
         return (
@@ -265,18 +307,40 @@ class Bot:
             await ws.close()
         await self._dispatcher.cancel_tasks()
 
-    async def _on_dispatch(self, payload: GatewayPayload) -> None:
-        """网关回调: 为每个 Dispatch 建 Context 并丢进独立任务."""
+    def dispatch(self, payload: GatewayPayload) -> asyncio.Task[None] | None:
+        """把一帧当作网关下发的事件来处理, 返回处理任务.
+
+        正常运行时由网关回调调用; 也可以在**不连网关**的情况下手动喂事件, 便于
+        单元测试::
+
+            payload = GatewayPayload.model_validate(
+                {"op": 0, "t": "GROUP_AT_MESSAGE_CREATE", "d": {...}}
+            )
+            await bot.dispatch(payload)   # 等 handler / 中间件跑完
+
+        Args:
+            payload: 网关数据包; ``op`` 不是 Dispatch 时忽略并返回 None.
+
+        Returns:
+            正在处理该事件的任务, 可以直接 ``await``; 被忽略时返回 None.
+            与网关路径一样, 处理是异步的, 不 ``await`` 也不影响收包。
+        """
         if payload.op != OpCode.DISPATCH:
-            return
+            return None
         if self._stop_event.is_set():
-            return
+            return None
         context = Context(bot=self, payload=payload, event=resolve_event(payload))
-        self._dispatcher.submit(context)
+        return self._dispatcher.submit(context)
+
+    async def _on_dispatch(self, payload: GatewayPayload) -> None:
+        """网关回调: 交给 :meth:`dispatch`, 不等待处理完成."""
+        self.dispatch(payload)
 
 
 __all__ = [
+    "INTENTS_ENV",
     "MSG_SEQ_CACHE_LIMIT",
     "Bot",
     "reset_msg_seq_cache",
+    "resolve_intents",
 ]

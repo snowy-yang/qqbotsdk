@@ -48,7 +48,11 @@ Bot(
 | `ctx.bot` | 反向访问 `Bot` |
 | `ctx.event_name` | `payload.t` |
 | `ctx.group_openid` / `ctx.user_openid` | 从事件体里取场景 openid |
-| `await ctx.reply(content, *, msg_seq=None, keyboard=None, seq_key=None)` | 被动回复，自动处理锚点与序号，可带内嵌键盘 |
+| `await ctx.reply(content, *, msg_seq=None, keyboard=None, seq_key=None)` | 被动回复纯文本，自动处理锚点与序号 |
+| `await ctx.reply_markdown(content, *, keyboard=None, msg_seq=None, seq_key=None)` | 被动回复 Markdown（`msg_type=2`） |
+| `await ctx.reply_media(file_info, *, content=None, keyboard=None, msg_seq=None, seq_key=None)` | 被动回复富媒体（`msg_type=7`） |
+| `await ctx.send_reply(*, content=None, markdown=None, media=None, card=None, keyboard=None, ...)` | 一步完成「算锚点 + 发出去」，四类内容任选 |
+| `ctx.build_reply(...)` | 只生成 `PreparedReply` 不发送，签名同 `send_reply` |
 | `await ctx.send(content)` | 主动消息（不带 `event_id`/`msg_id`） |
 
 ### reply 的锚点规则
@@ -79,6 +83,34 @@ from qqbotsdk.app import callback, keyboard, row
 await ctx.reply("来答一道题", keyboard=keyboard(row(callback("选项 A", "a"))))
 ```
 
+### 被动回复的四种内容
+
+`reply` / `reply_markdown` / `reply_media` / `send_reply` 共用同一套锚点 + `msg_seq`
+逻辑，`msg_type` 按你填了哪个内容字段自动推导：
+
+```python
+await ctx.reply("纯文本")
+await ctx.reply_markdown("## 标题\n正文", keyboard=kb)
+await ctx.reply_media(file_info, content="看图")
+await ctx.send_reply(card=card_model)  # 图文卡片
+```
+
+需要「先算好、稍后再发」时用 `build_reply`：
+
+```python
+prepared = ctx.build_reply(markdown="**处理中…**")
+# ... 做别的事 ...
+if prepared is not None:
+    scene, openid, request = prepared
+    from qqbotsdk.api.group import messages as group_messages
+
+    await group_messages.send_group_messages(openid, request)
+```
+
+> 内容字段互斥由请求模型校验：`markdown` / `media` / `card` / `input_notify`
+> 至多一个，`content` 与 `markdown` 互斥但可与 `media` 共存（作为附带文本）。
+> 显式传的 `msg_type` 与内容对不上会直接报错，而不是把矛盾发给服务端。
+
 ## ctx.api（场景门面）
 
 `ctx.api` 绑定当前事件的场景（群 / 单聊），常见操作一行完成：
@@ -106,7 +138,11 @@ async def on_message(ctx: Context) -> None:
 | `send_markdown(content, *, keyboard=None)` | 主动 Markdown（`msg_type=2`） | 消息 id |
 | `send_card(*, title, description, url, pic_url)` | 图文卡片（`msg_type=8`，`tuwen`） | 消息 id |
 | `send_media(file_info, *, content="")` | 富媒体（`msg_type=7`） | 消息 id |
-| `reply(content, *, msg_seq=None, keyboard=None, seq_key=None)` | 被动回复，等价 `ctx.reply()` | 消息 id 或 `None` |
+| `reply(content, *, msg_seq=None, keyboard=None, seq_key=None)` | 被动回复纯文本，等价 `ctx.reply()` | 消息 id 或 `None` |
+| `reply_markdown(content, *, keyboard=None, msg_seq=None, seq_key=None)` | 被动回复 Markdown | 消息 id 或 `None` |
+| `reply_media(file_info, *, content=None, keyboard=None, ...)` | 被动回复富媒体 | 消息 id 或 `None` |
+| `send_reply(*, content=None, markdown=None, media=None, card=None, keyboard=None, ...)` | 一步完成被动回复 | 消息 id 或 `None` |
+| `build_reply(...)` | 只生成 `PreparedReply` 不发送 | `PreparedReply` 或 `None` |
 | `recall(message_id)` | 撤回自己发的消息 | — |
 | `upload_image(path)` | 分片上传图片，返回 `file_info` | `file_info` |
 | `approve_join_request(member_openid=None, *, join_request_id=None)` | 通过入群申请（`member_openid` 默认取自事件） | — |
@@ -124,7 +160,7 @@ async def on_message(ctx: Context) -> None:
 
 ### 注意
 
-- **`send*` 都是主动消息**（不带 `event_id`/`msg_id`），受频控约束；被动回复用 `reply()`。
+- **`send*` 都是主动消息**（不带 `event_id`/`msg_id`），受频控约束；被动回复用 `reply*` / `send_reply`，它们才自动带锚点。
 - 按钮通过 `keyboard=` 传入，推荐用 [`qqbotsdk.app.keyboard`](#键盘构建) 的构建器拼装。
 - `upload_image` 会算 `md5` / `sha1` / 前 10MB 的 `md5`，按 `parts` 逐片 PUT 后合并；目前只支持图片，分片串行上传。
 - **QQ 没有「好友申请审核」接口**：加机器人即自动成为好友，`FRIEND_ADD` 只是通知，直接 `ctx.api.send()` 打招呼即可。
@@ -254,12 +290,21 @@ async def on_error(ctx: Context | None, exc: BaseException) -> None:
 
 默认 `DEFAULT_INTENTS` = 群与单聊消息 + 公域频道消息 + 频道成员 + 交互事件。
 
-只要群聊/单聊时可以收窄，避免申请不需要的权限：
+只做群聊 / 单聊时改用 `GROUP_BOT_INTENTS`（不含任何频道位）：
 
 ```python
-from qqbotsdk.ws import Intents
+from qqbotsdk.ws import GROUP_BOT_INTENTS, Intents
 
-bot = Bot(intents=Intents.GROUP_AND_C2C_EVENT | Intents.INTERACTION)
+bot = Bot(intents=GROUP_BOT_INTENTS)  # 群聊 + 互动
+bot = Bot(intents=Intents.GROUP_AND_C2C_EVENT)  # 连按钮都不用
 ```
 
-鉴权时传了无权限的 intents，网关会直接断开（关闭码 4013/4014），见 [ws.md](ws.md)。
+`INTENTS` 环境变量可以覆盖默认值（十进制或 `0x` 十六进制掩码），优先级是
+`Bot(intents=...)` > `INTENTS` > `DEFAULT_INTENTS`，便于运维不发版就收窄订阅：
+
+```ini
+INTENTS=0x2000000   # 只订阅 GROUP_AND_C2C_EVENT
+```
+
+鉴权时传了无权限的 intents，网关会直接断开（关闭码 4013/4014）；异常文案会指明
+是 intents 权限问题并提示去开放平台开通。见 [ws.md](ws.md)。

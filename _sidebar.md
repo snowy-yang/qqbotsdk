@@ -7,6 +7,7 @@
   - [权限与按钮语法糖](/docs/syntactic-sugar.md)
   - [网关客户端 ws](/docs/ws.md)
   - [错误处理](/docs/errors.md)
+  - [0.x → 2.x 迁移](/docs/migration-2.0.md)
 - API 参考
   - [API 总览与索引](/docs/api.md)
   - [鉴权与网关](/docs/api/auth.md)

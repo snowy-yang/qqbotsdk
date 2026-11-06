@@ -41,6 +41,27 @@ pip install --no-cache-dir qqbotsdk-py
 
 注意 `pip check` **无法**发现这类问题：它只校验发行包级别的依赖是否满足，不校验包内文件是否齐全。
 
+### pyright 报 `Import "qqbotsdk.app" could not be resolved`
+
+这和安装无关，是 pyright 没找到你装包的那个虚拟环境。`qqbotsdk` 是 PEP 420
+隐式命名空间包，pyright 能正常解析，但**必须先让它知道 venv**：
+
+```bash
+uv run pyright                 # 推荐：自动用项目的 .venv
+python -m pyright              # 需要项目里有 [tool.pyright] venvPath/venv 配置
+```
+
+下游项目在自己的 `pyproject.toml` 里补一段即可：
+
+```toml
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+```
+
+没配之前报 `could not be resolved` 是 pyright 的搜索路径问题，不是 SDK 装坏了；
+用 `python -c "import qqbotsdk.app"` 能成功就说明包是好的。
+
 ## 鉴权
 
 在项目根目录的 `.env`（或环境变量）里配置机器人凭证，SDK 会自动换取并注入 `access_token`：

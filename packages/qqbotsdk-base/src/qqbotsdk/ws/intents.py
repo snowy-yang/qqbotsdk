@@ -42,7 +42,21 @@ DEFAULT_INTENTS: Final = (
     | Intents.INTERACTION
 )
 
+# 只做群聊 / 单聊的机器人用这一组: 不含任何频道域订阅位
+GROUP_BOT_INTENTS: Final = Intents.GROUP_AND_C2C_EVENT | Intents.INTERACTION
+"""群聊 / 单聊机器人的订阅位.
+
+``DEFAULT_INTENTS`` 带两个频道位(``GUILD_MEMBERS`` / ``PUBLIC_GUILD_MESSAGES``,
+按官方文档它们属于基础事件、默认有权限, 不会导致连接被拒), 只做群聊的机器人用
+这组更贴合实际订阅范围, 也少一位需要考虑权限的位.
+
+注意 ``INTERACTION`` 属于需要申请的特殊事件: 如果机器人不用消息按钮 / 快捷菜单,
+可以进一步收窄成 ``Intents.GROUP_AND_C2C_EVENT``. 订阅了没开通的 intent, 网关会用
+关闭码 4013 / 4014 直接断开.
+"""
+
 __all__ = [
     "DEFAULT_INTENTS",
+    "GROUP_BOT_INTENTS",
     "Intents",
 ]

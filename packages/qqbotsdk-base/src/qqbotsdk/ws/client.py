@@ -71,6 +71,26 @@ _FATAL_CLOSE_CODES: Final = frozenset(
     {4001, 4002, 4010, 4011, 4012, 4013, 4014, 4914, 4915}
 )
 
+# 不可重连关闭码的可读原因, 让报错直接指向怎么修
+_FATAL_CLOSE_REASONS: Final = {
+    4001: "无效的 opcode",
+    4002: "无效的 payload",
+    4010: "无效的 shard",
+    4011: "连接数超过限制",
+    4012: "无效的 API 版本",
+    4013: (
+        "无效的 intents：其中有当前应用不可订阅的事件位；"
+        "到开放平台确认该 intents 已在「事件订阅」中开通"
+    ),
+    4014: (
+        "无权限的 intents：该 intents 未在开放平台开通；"
+        "到「开发设置 → 事件订阅」申请对应事件，或改用 "
+        "GROUP_BOT_INTENTS 收窄订阅范围"
+    ),
+    4914: "机器人已下架, 请到开放平台检查应用状态",
+    4915: "机器人已被封禁",
+}
+
 # 其余关闭码(含 4006, 4007, 4900~4913)一律清空会话后重新 Identify
 
 
@@ -509,7 +529,11 @@ class QQBotWebSocket:
             # 主动关闭, 无需重连
             return
         if code in _FATAL_CLOSE_CODES:
-            error = QQBotGatewayError("网关拒绝连接，不可重连", code=code)
+            reason = _FATAL_CLOSE_REASONS.get(code)
+            message = "网关拒绝连接，不可重连"
+            if reason is not None:
+                message = f"{message}：{reason}"
+            error = QQBotGatewayError(message, code=code)
             self._last_error = error
             raise _StopGateway(str(error))
         if code in _RESUMABLE_CLOSE_CODES:

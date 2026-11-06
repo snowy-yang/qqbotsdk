@@ -11,11 +11,18 @@ from qqbotsdk.model.sub.messages import (
     MessageExtInfo,
     MessageMarkdown,
     MessageReference,
+    MessageSendRequestBase,
 )
 from qqbotsdk.model.sub.upload import UploadPrepareResponse
 
 
-class SendUserMessagesRequest(QQBotRequestModel):
+class SendUserMessagesRequest(MessageSendRequestBase):
+    """发送单聊消息请求.
+
+    ``msg_type`` 可省略: 会按填入的内容字段自动推导(``content``→0、
+    ``markdown``→2、``input_notify``→6、``media``→7、``card``→8), 并校验内容字段互斥.
+    """
+
     msg_type: Literal[0, 2, 6, 7, 8] | None = Field(
         default=None,
         description="消息类型：0=纯文本(content)，2=Markdown(markdown)，6=输入中状态(input_notify)，7=富媒体(media)，8=图文卡片(card)",

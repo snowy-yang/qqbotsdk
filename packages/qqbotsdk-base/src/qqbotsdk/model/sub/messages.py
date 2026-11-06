@@ -1,8 +1,8 @@
-from typing import Literal
+from typing import Any, ClassVar, Literal, cast
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
-from qqbotsdk.model.core import QQBotBaseModel
+from qqbotsdk.model.core import QQBotBaseModel, QQBotRequestModel
 
 
 class Permission(QQBotBaseModel):
@@ -76,8 +76,10 @@ class Action(QQBotBaseModel):
 class RenderData(QQBotBaseModel):
     label: str | None = Field(
         default=None,
-        max_length=10,
-        description="按钮文字，最多 10 字符",
+        description=(
+            "按钮文字。平台限制为最多 10 字符，超出部分由平台自行裁剪；"
+            "SDK 不在此处校验长度，避免用热词/标题等业务数据时被 ValidationError 卡住"
+        ),
     )
     visited_label: str | None = Field(
         default=None,
@@ -207,3 +209,65 @@ class MessageCard(QQBotBaseModel):
         default=None,
         description="卡片元素；type=tuwen 时必须包含 title/description/url/pic_url",
     )
+
+
+class MessageSendRequestBase(QQBotRequestModel):
+    """发送消息请求的公共校验: 按内容字段推导 ``msg_type``, 并校验内容互斥.
+
+    平台的 ``msg_type`` 与内容字段是一一对应的(``content``→0、``markdown``→2、
+    ``input_notify``→6、``media``→7、``card``→8), 但两个字段都是可选的: 只填
+    ``markdown`` 而不填 ``msg_type`` 时, 请求体会缺 ``msg_type`` 而只剩内容字段,
+    语义全靠平台默认推断. 这里在**校验前**按填入的字段补齐 ``msg_type``, 让
+    ``SendXxxMessagesRequest(markdown=...)`` 直接就是一个合法的请求.
+
+    同时把原来只写在 docstring 里的互斥关系变成真校验:
+
+    - ``markdown`` / ``media`` / ``card`` / ``input_notify`` 四者至多填一个;
+    - ``content`` 与 ``markdown`` 互斥(官方: 传了 markdown 后 content 必须为空);
+    - ``content`` 可以与 ``media`` 共存, 作为富媒体的附带文本.
+
+    显式传了 ``msg_type`` 但与内容字段对不上时直接报错, 而不是把矛盾发给服务端.
+    """
+
+    # 内容字段 -> 该字段对应的 msg_type
+    _MSG_TYPE_BY_FIELD: ClassVar[dict[str, int]] = {
+        "markdown": 2,
+        "media": 7,
+        "card": 8,
+        "input_notify": 6,
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_msg_type(cls, data: Any) -> Any:
+        """补齐 ``msg_type`` 并校验内容字段互斥."""
+        if not isinstance(data, dict):
+            return data
+        raw = cast("dict[str, Any]", data)
+        filled = [name for name in cls._MSG_TYPE_BY_FIELD if raw.get(name) is not None]
+        if len(filled) > 1:
+            raise ValueError(f"消息内容字段互斥，不能同时传 {filled}")
+        has_content = raw.get("content") is not None
+        if has_content and "markdown" in filled:
+            raise ValueError(
+                "content 与 markdown 互斥：传了 markdown 时 content 必须为空"
+            )
+
+        if filled:
+            inferred = cls._MSG_TYPE_BY_FIELD[filled[0]]
+        elif has_content:
+            inferred = 0
+        else:
+            # 没有任何内容字段(例如只带键盘), 保持原样交给平台判断
+            return raw
+
+        declared = raw.get("msg_type")
+        if declared is None:
+            return {**raw, "msg_type": inferred}
+        if declared != inferred:
+            source = filled[0] if filled else "content"
+            raise ValueError(
+                f"msg_type={declared!r} 与内容字段 {source!r} 不匹配，"
+                f"按 {source!r} 应为 {inferred}"
+            )
+        return raw
