@@ -75,6 +75,35 @@ def _remember_msg_seq(key: str, seq: int) -> None:
         _MSG_SEQ_CACHE.pop(next(iter(_MSG_SEQ_CACHE)))
 
 
+def _resolve_intents_with_source(intents: Intents | None) -> tuple[Intents, str]:
+    """解析订阅位, 同时返回它的来源(用于启动日志).
+
+    Args:
+        intents: 代码里显式指定的订阅位; 传 None 表示没指定.
+
+    Returns:
+        ``(订阅位, 来源说明)``, 来源是 ``"显式入参"`` / ``"INTENTS 环境变量"`` /
+        ``"默认值"`` 之一.
+
+    Raises:
+        ValueError: ``INTENTS`` 环境变量不是合法的十进制 / ``0x`` 十六进制掩码.
+    """
+    if intents is not None:
+        return intents, "显式入参"
+    raw = os.getenv(INTENTS_ENV, "").strip()
+    if not raw:
+        return DEFAULT_INTENTS, "默认值"
+    try:
+        mask = int(raw, 0)  # 十进制或 0x 十六进制
+    except ValueError:
+        raise ValueError(
+            f"{INTENTS_ENV} 应为十进制或 0x 十六进制掩码，实际: {raw!r}"
+        ) from None
+    if mask < 0:
+        raise ValueError(f"{INTENTS_ENV} 不能为负数，实际: {mask}")
+    return Intents(mask), f"{INTENTS_ENV} 环境变量"
+
+
 def resolve_intents(intents: Intents | None = None) -> Intents:
     """决定本次使用的订阅位: 显式入参 > ``INTENTS`` 环境变量 > ``DEFAULT_INTENTS``.
 
@@ -87,20 +116,7 @@ def resolve_intents(intents: Intents | None = None) -> Intents:
     Raises:
         ValueError: ``INTENTS`` 环境变量不是合法的十进制 / ``0x`` 十六进制掩码.
     """
-    if intents is not None:
-        return intents
-    raw = os.getenv(INTENTS_ENV, "").strip()
-    if not raw:
-        return DEFAULT_INTENTS
-    try:
-        mask = int(raw, 0)  # 十进制或 0x 十六进制
-    except ValueError:
-        raise ValueError(
-            f"{INTENTS_ENV} 应为十进制或 0x 十六进制掩码，实际: {raw!r}"
-        ) from None
-    if mask < 0:
-        raise ValueError(f"{INTENTS_ENV} 不能为负数，实际: {mask}")
-    return Intents(mask)
+    return _resolve_intents_with_source(intents)[0]
 
 
 class Bot:
@@ -120,13 +136,17 @@ class Bot:
         url: str | None = None,
         auto_reconnect: bool = True,
     ) -> None:
-        self._intents = resolve_intents(intents)
+        resolved, source = _resolve_intents_with_source(intents)
+        self._intents = resolved
         self._url = url
         self._auto_reconnect = auto_reconnect
         self._dispatcher = Dispatcher()
         self._ws: QQBotWebSocket | None = None
         self._stop_event = asyncio.Event()
         self._running = False
+        # 订阅位来源写进启动日志: INTENTS 环境变量是运维侧的静默覆盖开关,
+        # 出错时(例如误收窄导致收不到事件)要能一眼看出订阅范围是从哪来的.
+        logger.info(f"订阅位 intents={int(self._intents)} 来源={source}")
 
     @property
     def intents(self) -> Intents:

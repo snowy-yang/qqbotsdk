@@ -153,3 +153,67 @@ async def test_await_form_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert body == {"ok": True}
     assert server.requests == 1
+
+
+# ---------------------------------------------------------------- request()
+
+# 2.2.0 的回归: request() 曾被写成 async def, 导致 async with 抛 TypeError.
+# 这些用例锁住「所有 verb 方法返回同一种上下文管理器」这个契约.
+
+
+def test_all_verbs_return_same_retrying_context() -> None:
+    """get/post/put/patch/delete/request 返回同一种可重试上下文."""
+    from qqbotsdk.api.core import _RetryingRequestContext
+
+    for verb in ("get", "post", "put", "patch", "delete"):
+        obj = getattr(core.session, verb)("/x")
+        assert isinstance(obj, _RetryingRequestContext), verb
+        assert hasattr(obj, "__aenter__"), verb
+
+    obj = core.session.request("GET", "/x")
+    assert isinstance(obj, _RetryingRequestContext)
+    assert hasattr(obj, "__aenter__")
+
+
+async def test_request_supports_async_with(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``async with session.request(...)`` 必须成立(2.2.0 会抛 TypeError)."""
+    script: list[tuple[int, dict[str, str]]] = [(200, {})]
+    async with (
+        _fake_api(monkeypatch, script) as server,
+        core.session.request("GET", "/ok") as resp,
+    ):
+        body: Any = await resp.json()
+
+    assert body == {"ok": True}
+    assert server.requests == 1
+
+
+async def test_request_supports_await(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``await session.request(...)`` 同样成立."""
+    script: list[tuple[int, dict[str, str]]] = [(200, {})]
+    async with _fake_api(monkeypatch, script) as server:
+        resp = await core.session.request("GET", "/ok")
+        try:
+            assert resp.status == 200
+            body: Any = await resp.json()
+        finally:
+            resp.release()
+
+    assert body == {"ok": True}
+    assert server.requests == 1
+
+
+async def test_request_goes_through_429_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """request() 与 get() 一样走 429 重试, 不是裸 aiohttp."""
+    script: list[tuple[int, dict[str, str]]] = [
+        (429, {"Retry-After": "0"}),
+        (200, {}),
+    ]
+    async with (
+        _fake_api(monkeypatch, script) as server,
+        core.session.request("GET", "/limited") as resp,
+    ):
+        body: Any = await resp.json()
+
+    assert body == {"ok": True}
+    assert server.requests == 2

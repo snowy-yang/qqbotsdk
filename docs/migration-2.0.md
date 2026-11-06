@@ -211,7 +211,11 @@ async with session.request("GET", "/users/@me") as resp:
     data = await resp.json()
 ```
 
-`session.request()` 与 `session.get()` / `post()` 等完全同构，同样走 429 重试。
+`session.request()` 与 `session.get()` / `post()` 等完全同构：都是普通方法，返回可重试的
+请求上下文，`async with` 与 `await` 两种写法都成立，同样走 429 重试。
+
+> 2.2.0 曾把它写成 `async def`，导致 `async with session.request(...)` 抛
+> `TypeError`；已在 2.2.1 修正为普通 `def`。
 
 ## 9. 测试
 

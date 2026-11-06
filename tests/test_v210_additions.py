@@ -261,3 +261,63 @@ async def test_dispatch_returns_task_that_can_be_awaited() -> None:
     assert task is not None
     await task
     assert seen == ["ran"]
+
+
+# ---------------------------------------------------------------- intents 来源可见性
+
+# INTENTS 环境变量是运维侧的静默覆盖开关: 误设会收窄订阅且不报错, 所以启动时必须
+# 把「最终生效的掩码 + 来源」写进日志, 让人一眼看出订阅范围是从哪来的.
+
+
+def _capture_logs() -> tuple[list[str], int]:
+    """把 loguru 的日志收进列表, 返回 ``(列表, handler_id)``."""
+    from loguru import logger
+
+    messages: list[str] = []
+    handler_id = logger.add(
+        lambda message: messages.append(str(message)), format="{message}"
+    )
+    return messages, handler_id
+
+
+def test_bot_logs_intents_source_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """未传参且无环境变量时, 日志显示来源为默认值."""
+    from loguru import logger
+
+    monkeypatch.delenv(INTENTS_ENV, raising=False)
+    messages, handler_id = _capture_logs()
+    try:
+        Bot()
+    finally:
+        logger.remove(handler_id)
+
+    assert any("来源=默认值" in message for message in messages)
+
+
+def test_bot_logs_intents_source_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """环境变量生效时, 日志明确指出来源是环境变量(而不是悄悄改掉)."""
+    from loguru import logger
+
+    monkeypatch.setenv(INTENTS_ENV, "0x2000000")
+    messages, handler_id = _capture_logs()
+    try:
+        Bot()
+    finally:
+        logger.remove(handler_id)
+
+    assert any("来源=INTENTS 环境变量" in message for message in messages)
+    assert any(f"intents={1 << 25}" in message for message in messages)
+
+
+def test_bot_logs_intents_source_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """显式传参时来源为「显式入参」, 即便环境变量存在."""
+    from loguru import logger
+
+    monkeypatch.setenv(INTENTS_ENV, "0x2000000")
+    messages, handler_id = _capture_logs()
+    try:
+        Bot(intents=Intents.INTERACTION)
+    finally:
+        logger.remove(handler_id)
+
+    assert any("来源=显式入参" in message for message in messages)

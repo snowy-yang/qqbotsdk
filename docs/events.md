@@ -67,6 +67,10 @@ bot = Bot()  # 读 INTENTS
 print(resolve_intents())  # 看看最终生效的掩码
 ```
 
+环境变量对代码是**静默覆盖**：误设一个 `INTENTS` 会让 `Bot()` 悄悄收窄订阅且不报错。
+所以 `Bot` 创建时会打一条 info 日志写明最终掩码与来源（`显式入参` / `INTENTS 环境变量`
+/ `默认值`），排查「收不到某类事件」时先看这一行。
+
 > **注意 `GROUP_MEMBER_EVENT` (1<<24)**：官方「事件订阅与通知」总表没有收录这一位，
 > 但 [群成员加入](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_member_add.html)
 > 与 [用户申请加群](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_join_request.html)

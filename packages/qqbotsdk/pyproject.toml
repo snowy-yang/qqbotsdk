@@ -1,6 +1,6 @@
 [project]
 name = "qqbotsdk-py"
-version = "2.2.0"
+version = "2.2.1"
 description = "QQ 官方机器人 SDK：群聊 / 单聊 / 素材 / 互动"
 readme = "README.md"
 authors = [
@@ -8,11 +8,11 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "qqbotsdk-base-py>=2.2.0",
+    "qqbotsdk-base-py>=2.2.1",
 ]
 
 [project.optional-dependencies]
-guild = ["qqbotsdk-guild-py>=2.2.0"]
+guild = ["qqbotsdk-guild-py>=2.2.1"]
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14.0"]

@@ -414,8 +414,8 @@ class QQBotSession:
         """底层 aiohttp 会话, 供 WebSocket 等需要原生能力的场景使用."""
         return self._ensure()
 
-    async def request(self, method: str, url: str, **kwargs: Any) -> ClientResponse:
-        """通用 verb 请求: 与 ``get`` / ``post`` 等完全同构, 同样走 429 重试.
+    def request(self, method: str, url: str, **kwargs: Any) -> _RetryingRequestContext:
+        """通用 verb 请求: 与 ``get`` / ``post`` 等**完全同构**, 同样走 429 重试.
 
         ``method`` 可以是任意 HTTP verb, 便于按配置分发。行为与
         ``get`` / ``post`` / ``put`` / ``patch`` / ``delete`` 一致:
@@ -423,16 +423,22 @@ class QQBotSession:
         - 命中 HTTP 429 时按 ``Retry-After`` / 指数退避自动重试, 最多
           ``MAX_RETRIES`` 次;
         - 非 2xx 抛 :class:`qqbotsdk.errors.QQBotAPIError`(OpenAPI 域名下);
-        - 返回的响应**未**读取 body, 调用方自己 ``await resp.json()`` 或
-          ``await resp.read()``, 用完由本方法的上下文管理器释放连接::
+        - 返回可重试的请求上下文, 两种写法都支持::
 
+            # 推荐: 由上下文管理器负责释放连接
             async with session.request("GET", "/users/@me") as resp:
                 data = await resp.json()
 
-        注意: 直接 ``await session.request(...)`` 拿到的响应不会自动释放,
-        与 aiohttp 原生语义一致, 建议一律用 ``async with``.
+            # 等价: 直接 await
+            resp = await session.request("GET", "/users/@me")
+
+        注意: 直接 ``await`` 拿到的响应不会自动释放, 与 aiohttp 原生语义一致,
+        建议一律用 ``async with``.
+
+        本方法刻意写成普通 ``def`` 而不是 ``async def``: 后者返回协程, 会让
+        ``async with`` 直接抛 ``TypeError``, 与其它 verb 方法不一致.
         """
-        return await self._request_context(method, url, **kwargs)
+        return self._request_context(method, url, **kwargs)
 
     @property
     def closed(self) -> bool:

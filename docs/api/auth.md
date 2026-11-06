@@ -41,7 +41,7 @@ await session.close()  # 进程退出前关闭
 | 成员 | 说明 |
 |---|---|
 | `session.get/post/put/patch/delete(url, **kw)` | 返回可重试的请求上下文，用法同 aiohttp |
-| `await session.request(method, url, **kw)` | 直接返回响应（自行处理状态码时用） |
+| `session.request(method, url, **kw)` | 同上的通用 verb 版；同样支持 `await` 与 `async with`，同样走 429 重试 |
 | `session.client` | 底层 `aiohttp.ClientSession`（WebSocket 等原生场景用） |
 | `await session.close()` | 关闭会话，可重复调用 |
 | `session.closed` | 是否已关闭 |

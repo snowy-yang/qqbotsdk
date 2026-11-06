@@ -3,6 +3,13 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.1] - 2026-11-06
+
+### 修复
+
+- **`QQBotSession.request()` 支持 `async with`**：2.2.0 把它写成 `async def`，返回的是协程而不是可重试上下文，`async with session.request(...)` 会抛 `TypeError: 'coroutine' object does not support the asynchronous context manager protocol`，与同一版本文档宣称的「与 `get`/`post` 完全同构」不符。现已改回普通 `def`，`async with` 与 `await` 两种写法都成立，与其余 verb 方法真正一致
+- **启动日志写明订阅位来源**：`INTENTS` 环境变量对代码是静默覆盖，误设会让 `Bot()` 收窄订阅且不报错。现在 `Bot` 创建时打一条 info 日志（`订阅位 intents=<掩码> 来源=<显式入参|INTENTS 环境变量|默认值>`），排查「收不到某类事件」时先看这一行
+
 ## [2.2.0] - 2026-11-06
 
 ### 新增
@@ -189,7 +196,8 @@
 - **文档**：使用指南、API 参考、架构说明与可运行示例（`examples/`）
 - **测试**：纯逻辑单测 + 假网关 WebSocket 端到端 + Webhook 验签/去重端到端
 
-[Unreleased]: https://github.com/snowy-yang/qqbotsdk/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/snowy-yang/qqbotsdk/compare/v2.2.1...HEAD
+[2.2.1]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.2.1
 [2.2.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.2.0
 [2.1.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.1.0
 [2.0.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.0.0
