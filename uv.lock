@@ -787,7 +787,7 @@ wheels = [
 
 [[package]]
 name = "qqbotsdk-base-py"
-version = "2.1.0"
+version = "2.2.0"
 source = { editable = "packages/qqbotsdk-base" }
 dependencies = [
     { name = "aiohttp" },
@@ -806,7 +806,7 @@ requires-dist = [
 
 [[package]]
 name = "qqbotsdk-guild-py"
-version = "2.1.0"
+version = "2.2.0"
 source = { editable = "packages/qqbotsdk-guild" }
 dependencies = [
     { name = "qqbotsdk-base-py" },
@@ -817,7 +817,7 @@ requires-dist = [{ name = "qqbotsdk-base-py", editable = "packages/qqbotsdk-base
 
 [[package]]
 name = "qqbotsdk-py"
-version = "2.1.0"
+version = "2.2.0"
 source = { editable = "packages/qqbotsdk" }
 dependencies = [
     { name = "qqbotsdk-base-py" },

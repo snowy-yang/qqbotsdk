@@ -3,7 +3,7 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.2.0] - 2026-11-06
 
 ### 新增
 
@@ -25,6 +25,12 @@
 
 - 网关致命关闭码 4013 / 4014 的异常文案补充原因与处置建议（intents 未开通、去开放平台申请或改用 `GROUP_BOT_INTENTS`），不再只有「网关拒绝连接，不可重连」
 - `README.md` 补充 pyright 报 `Import "qqbotsdk.app" could not be resolved` 的排查说明（venv 未配置，与安装无关）
+- 修复 3.12 / 3.13 上 `SceneApi.build_reply` 的返回值注解直接引用 `TYPE_CHECKING` 名字导致的 `NameError`（3.14 起注解惰性求值，本地测不出来）。`Scene` / `PreparedReply` 抽到叶子模块 `qqbotsdk.app.types` 解开 `api` 与 `context` 的循环依赖，并新增 AST 静态守卫 `tests/test_annotations_resolvable.py`
+
+### 构建与发布
+
+- 三个发行包版本号统一由 2.1.0 升至 **2.2.0**，包间依赖约束同步收紧为 `>=2.2.0`
+- 新增能力属 minor 变更，无破坏性 API 变更；两处行为变更为 `request()` 走 429 重试与 `RenderData.label` 放宽校验
 
 ## [2.1.0] - 2026-11-05
 
@@ -183,7 +189,8 @@
 - **文档**：使用指南、API 参考、架构说明与可运行示例（`examples/`）
 - **测试**：纯逻辑单测 + 假网关 WebSocket 端到端 + Webhook 验签/去重端到端
 
-[Unreleased]: https://github.com/snowy-yang/qqbotsdk/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/snowy-yang/qqbotsdk/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.2.0
 [2.1.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.1.0
 [2.0.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v2.0.0
 [1.0.0]: https://github.com/snowy-yang/qqbotsdk/releases/tag/v1.0.0
