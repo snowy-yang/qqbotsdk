@@ -11,6 +11,7 @@ from qqbotsdk.api.group import messages as group_messages
 from qqbotsdk.app import Bot, Context, callback, keyboard, row
 from qqbotsdk.app.context import PreparedReply
 from qqbotsdk.app.dispatch import resolve_event
+from qqbotsdk.model.event.interaction import InteractionCreateEvent
 from qqbotsdk.model.group.messages import (
     SendGroupMessagesRequest,
     SendGroupMessagesResponse,
@@ -252,11 +253,13 @@ def test_build_reply_on_group_interaction_uses_group_scene() -> None:
             "chat_type": 2,
             "group_openid": GROUP_OPENID,
             "group_member_openid": "MEMBER-1",
-            "timestamp": 1762000000,
+            "timestamp": TIMESTAMP,
         },
         event_name="INTERACTION_CREATE",
         event_id="evt-int",
     )
+    # 事件模型必须真的解析成功, 否则测的还是 event=None 的兜底路径
+    assert isinstance(ctx.event, InteractionCreateEvent)
     prepared = ctx.build_reply(content="已收到")
 
     assert prepared is not None
@@ -275,9 +278,10 @@ def test_build_reply_returns_none_for_guild_interaction() -> None:
             "scene": "guild",
             "guild_openid": "GUILD-1",
             "channel_openid": "CHANNEL-1",
-            "timestamp": 1762000000,
+            "timestamp": TIMESTAMP,
         },
         event_name="INTERACTION_CREATE",
         event_id="evt-int-2",
     )
+    assert isinstance(ctx.event, InteractionCreateEvent)
     assert ctx.build_reply(content="x") is None
