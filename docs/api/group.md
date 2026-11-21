@@ -159,6 +159,7 @@ from qqbotsdk.model.group.member import (
 
 - **`GetGroupMembersRequest`**：`cursor`（可选，翻页传上一页 `next_cursor`）。
 - `GetGroupMembersResponse`：`members: list[GroupMember]`、`next_cursor`。`GroupMember` 含 `member_openid`、`username`、`member_role`（`member`/`owner`/`admin`）、`bot`、`joined_at`、`union_openid`。
+- **成员接口没有头像和群昵称**：`avatar` / `member_nickname` 只在**事件**里下发（2026-11-16 起），`GET .../members` 与 `GET .../members/{member_openid}` 的响应体都没有这两个字段（两个接口当前也都在内邀，无权限时报 `11253`）。要展示头像/群昵称，从消息事件或成员增减事件里取。
 - `GetGroupInfoResponse`：`group_openid`、`union_group_openid`、`group_name`、`group_finger_memo`、`group_class_text`、`group_tags`、`group_member_num`。
 - `GetGroupBotStateResponse`：`member_openid`、`joined_at`、`allow_proactive_msg`、`recv_msg_setting`、`member_role`（`member`/`owner`/`admin`）。
 - `RemoveGroupMembersResponse`：`remove_members_result: str | None`、`add_to_member_blacklist_fail_openids: list[str] | None`。

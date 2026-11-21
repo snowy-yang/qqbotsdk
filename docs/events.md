@@ -13,7 +13,7 @@
 | `op` | 操作码，`0` = Dispatch（业务事件） |
 | `s` | 序号，心跳与 Resume 需要 |
 | `t` | 事件名 |
-| `id` | 事件 ID（被动回复时作为 `event_id`） |
+| `id` | 事件 ID（只有 `GROUP_ADD_ROBOT` / `GROUP_MSG_RECEIVE` / `C2C_MSG_RECEIVE` / `FRIEND_ADD` / `INTERACTION_CREATE` 用它在被动回复里作 `event_id`；消息事件走 `d.id`） |
 | `d` | 事件体，**事件模型只描述这一部分** |
 
 信封模型：`qqbotsdk.ws.payload.GatewayPayload`；`READY` 的事件体是 `ReadyContent`。
@@ -145,6 +145,18 @@ from qqbotsdk.model.guild.event import EVENT_MODELS, parse_event
 
 上层 `Bot` 已经替你做过解析：`ctx.event` 就是对应模型（频道事件在装了 guild 包时同样可用）。
 
+## 哪些事件可以被动回复
+
+官方把被动回复的锚点分成两套，SDK 按事件名自动选（见 [`docs/app.md`](app.md#reply-的锚点规则)）：
+
+| 锚点 | 事件 | 填的字段 |
+|---|---|---|
+| 消息 `d.id` | `GROUP_AT_MESSAGE_CREATE`、`GROUP_MESSAGE_CREATE`、`C2C_MESSAGE_CREATE` | `msg_id` + `msg_seq` |
+| 事件信封 `id` | `GROUP_ADD_ROBOT`、`GROUP_MSG_RECEIVE`、`INTERACTION_CREATE`（群聊 / 单聊） | `event_id` |
+| 事件信封 `id` | `C2C_MSG_RECEIVE`、`FRIEND_ADD` | `event_id` |
+
+清单外的事件（`GROUP_MEMBER_ADD`、`GROUP_DEL_ROBOT`、`GROUP_MSG_REJECT`、`FRIEND_DEL`、频道互动等）`ctx.reply` 返回 `None`：这些场景平台不接受被动回复，要发就发主动消息 `ctx.send`。
+
 ## 在 handler 里按类型分支
 
 ```python
@@ -182,5 +194,5 @@ from qqbotsdk.testing import dispatch, dispatch_frame, make_payload
 
 await dispatch(bot, "GROUP_AT_MESSAGE_CREATE", {"id": "m1", "content": "hi"})
 await dispatch_frame(bot, '{"op": 0, "t": "READY", "d": {}}')  # 直接贴网关日志
-payload = make_payload("GROUP_AT_MESSAGE_CREATE", {...}, event_id=None)  # 验证回退分支
+payload = make_payload("FRIEND_ADD", {...}, event_id="evt-9")  # 事件锚点用例
 ```

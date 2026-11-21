@@ -88,7 +88,21 @@ await send_user_messages(
 - 要求该用户与机器人为好友关系，否则 `40054004 无好友关系`；`user_openid` 必须是这条群消息的发送者，否则 `40034024`。
 - 有效时间与次数按**群消息**规则算：60 分钟；5 次，机器人开发者是该群群主/管理员时 50 次。
 - 与群内回复**共用同一个 `msg_id` 的次数上限**：同一个锚点既在群里回又私聊回时两条一起占配额，`msg_seq` 也要一起排，否则会被 `40054005` 去重。
-- 群消息事件体只给 `member_openid`，没有 `user_openid`。SDK 不做猜转换——要用这个能力，得自己拿到该发送者的 `user_openid`（例如他给你的单聊事件，或用 `union_openid` 关联）。
+
+### 从哪里拿 `user_openid`
+
+`member_openid` **不能**当 `user_openid` 用。官方「唯一身份机制」写得很直接：同一个用户在单聊场景的 `user_openid` 与在群聊场景的 `member_openid` 是**两个不同标识**，平台也没有提供二者互转的接口。群消息事件体里只有 `author.member_openid`，没有 `user_openid`。
+
+拿到 `user_openid` 的正规途径：
+
+| 途径 | 拿到的字段 |
+| --- | --- |
+| 用户私聊机器人 | `C2C_MESSAGE_CREATE` 的 `author.user_openid` |
+| 用户加机器人为好友 | `FRIEND_ADD` 事件体顶层的 `openid` |
+| 跨应用关联 | 群事件的 `author.union_openid` 与单聊侧的 `union_openid` 对上（绑定三方应用时才有值） |
+| 主动查询 | `get_user_info(union_openid)` 的返回里没有 `user_openid`，只能查资料，不能反查身份 |
+
+所以「群里点个按钮就私聊他」这类需求，SDK 不替你猜转换：得先有该用户私聊过你（或加过好友）的记录，把 `user_openid` 存下来。猜错的代价是 `40034024 请求参数msg_id无效或越权`，比多存一个字段难排查得多。
 
 ## 富媒体上传（三步）
 

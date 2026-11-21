@@ -306,8 +306,8 @@ async def test_reply_delegates_to_context(monkeypatch: pytest.MonkeyPatch) -> No
     assert (first, second) == ("sent-1", "sent-2")
     _, first_request = sent[0]
     _, second_request = sent[1]
-    assert first_request.event_id == "evt-1"
-    assert first_request.msg_id is None
+    assert first_request.event_id is None
+    assert first_request.msg_id == "MSG-1"
     assert (first_request.msg_seq, second_request.msg_seq) == (1, 2)
 
 

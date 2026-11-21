@@ -57,11 +57,13 @@ Bot(
 
 ### reply 的锚点规则
 
-1. 优先 `payload.id`（事件 ID）→ 填 `event_id`；
-2. 否则回退 `d.id`（消息 ID）→ 填 `msg_id`；
-3. 两者互斥，请求体里只会出现一个；
+锚点类型由事件决定，不是「信封 id 优先」（2026-11-17 官方口径）：
+
+1. **消息事件**（`GROUP_AT_MESSAGE_CREATE`、`GROUP_MESSAGE_CREATE`、`C2C_MESSAGE_CREATE`）→ 取事件体 `d.id` 填 `msg_id`，并自动带 `msg_seq`；信封里的 `payload.id` 不参与；
+2. **事件**（`GROUP_ADD_ROBOT`、`GROUP_MSG_RECEIVE`、`C2C_MSG_RECEIVE`、`FRIEND_ADD`、`INTERACTION_CREATE`）→ 取信封 `payload.id` 填 `event_id`，不带 `msg_seq`。互动事件按 `group_openid` / `user_openid` 落到群聊或单聊，频道互动不支持，返回 `None`；
+3. `event_id` 与 `msg_id` 互斥，请求体里只会出现一个；
 4. 都取不到 → 返回 `None`，**不会**退化成主动消息（不消耗主动推送配额）；
-5. `msg_seq` 按锚点自增（1、2、3…，LRU 上限 512）；显式传入则覆盖并把计数推进到该值。平台上限是群聊 5 次（机器人开发者是该群群主/管理员时 50 次）、单聊 4 次，群聊被动回复窗口 60 分钟，超出会被拒发。
+5. `msg_seq` 按 `d.id` 自增（1、2、3…，LRU 上限 512）；显式传入则覆盖并把计数推进到该值。平台上限是群聊 5 次（机器人开发者是该群群主/管理员时 50 次）、单聊 4 次，群聊被动回复窗口 60 分钟，超出会被拒发。
 
 `msg_seq` 计数**按锚点全局共享**，不随 `Bot` 实例隔离：同一进程里多个 `Bot` 命中同一锚点会继续往下排，而不是各自从 1 重来。自己拼请求直连 `send_group_messages` 时，先登记一次就不会让后面的 `ctx.reply` 撞上 40054005：
 
@@ -73,7 +75,15 @@ seq = ctx.bot.next_msg_seq(anchor_id)
 seq = ctx.bot.next_msg_seq("shared", seq_key="q1")
 ```
 
-只对这三个事件可回复：`GROUP_AT_MESSAGE_CREATE`、`GROUP_MESSAGE_CREATE`、`C2C_MESSAGE_CREATE`。
+可回复事件就上面两类共 8 个。`GROUP_MEMBER_ADD`、`GROUP_DEL_ROBOT`、`GROUP_MSG_REJECT` 等不在清单里，`ctx.reply` 返回 `None`——这些场景发主动消息（`ctx.send`），或参考 `GROUP_ADD_ROBOT` 这种官方清单内的写法。
+
+进群欢迎语现在可以被动回复了：
+
+```python
+@bot.on("GROUP_ADD_ROBOT")
+async def welcome(ctx: Context) -> None:
+    await ctx.reply("欢迎进群")  # event_id 锚点, 不占主动频次
+```
 
 `keyboard` 用来在**被动回复**里带按钮，不必绕开框架直连 `send_group_messages`：
 

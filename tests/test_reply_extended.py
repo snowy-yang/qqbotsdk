@@ -138,7 +138,8 @@ def test_build_reply_prepares_without_sending(sent: list[tuple[str, object]]) ->
     assert openid == GROUP_OPENID
     assert isinstance(request, SendGroupMessagesRequest)
     assert request.msg_type == 2
-    assert request.event_id == "evt-1"
+    assert request.msg_id == "MSG-1"
+    assert request.event_id is None
     assert request.msg_seq == 1
     assert sent == []
 
@@ -155,7 +156,8 @@ async def test_send_reply_sends_markdown(sent: list[tuple[str, object]]) -> None
     assert request.msg_type == 2
     assert request.markdown is not None
     assert request.markdown.content == "## 标题"
-    assert request.event_id == "evt-1"
+    assert request.msg_id == "MSG-1"
+    assert request.event_id is None
 
 
 async def test_reply_markdown_and_reply_media_share_seq(
@@ -191,22 +193,91 @@ async def test_reply_media_on_c2c_uses_user_api(
 
 
 def test_build_reply_returns_none_for_non_replyable_event() -> None:
-    """不可被动回复的事件 build_reply 返回 None, 不抛异常."""
+    """清单外的群事件 build_reply 返回 None, 不抛异常."""
     ctx = _ctx(
         {"group_openid": "G1"},
-        event_name="GROUP_ADD_ROBOT",
-        event_id="evt-bot",
+        event_name="GROUP_DEL_ROBOT",
+        event_id="evt-del",
     )
     assert ctx.build_reply(content="x") is None
 
 
-def test_build_reply_falls_back_to_msg_id() -> None:
-    """信封没有事件 ID 时锚点回退到 d.id, 填 msg_id 而不是 event_id."""
-    ctx = _ctx(_group_payload(), event_id=None)
-    prepared = ctx.build_reply(markdown="hi")
+def test_build_reply_uses_event_id_for_group_add_robot() -> None:
+    """GROUP_ADD_ROBOT 走 event_id 被动回复(官方清单内), 不带 msg_seq."""
+    ctx = _ctx(
+        {"group_openid": "G1", "op_member_openid": "M-1", "timestamp": 1762000000},
+        event_name="GROUP_ADD_ROBOT",
+        event_id="evt-bot",
+    )
+    prepared = ctx.build_reply(content="欢迎")
 
     assert prepared is not None
-    request = prepared.request
+    scene, openid, request = prepared
+    assert scene == "group"
+    assert openid == "G1"
     assert isinstance(request, SendGroupMessagesRequest)
-    assert request.msg_id == "MSG-1"
-    assert request.event_id is None
+    assert request.event_id == "evt-bot"
+    assert request.msg_id is None
+    assert request.msg_seq is None
+
+
+def test_build_reply_uses_event_id_for_friend_add() -> None:
+    """FRIEND_ADD 是单聊侧 event_id 清单里的, 回复落到单聊场景."""
+    ctx = _ctx(
+        {
+            "timestamp": 1762000000,
+            "openid": USER_OPENID,
+            "scene": 1003,
+            "author": {"union_openid": "UNION-1"},
+        },
+        event_name="FRIEND_ADD",
+        event_id="evt-friend",
+    )
+    prepared = ctx.build_reply(content="欢迎加好友")
+
+    assert prepared is not None
+    scene, openid, request = prepared
+    assert scene == "c2c"
+    assert openid == USER_OPENID
+    assert request.event_id == "evt-friend"
+    assert request.msg_seq is None
+
+
+def test_build_reply_on_group_interaction_uses_group_scene() -> None:
+    """群聊互动事件也能被动回复: 用 event_id, 目标取 group_openid."""
+    ctx = _ctx(
+        {
+            "id": "INT-1",
+            "scene": "group",
+            "chat_type": 2,
+            "group_openid": GROUP_OPENID,
+            "group_member_openid": "MEMBER-1",
+            "timestamp": 1762000000,
+        },
+        event_name="INTERACTION_CREATE",
+        event_id="evt-int",
+    )
+    prepared = ctx.build_reply(content="已收到")
+
+    assert prepared is not None
+    scene, openid, request = prepared
+    assert scene == "group"
+    assert openid == GROUP_OPENID
+    assert request.event_id == "evt-int"
+    assert request.msg_seq is None
+
+
+def test_build_reply_returns_none_for_guild_interaction() -> None:
+    """频道互动不走群聊/单聊发送接口, 返回 None 而不是发错地方."""
+    ctx = _ctx(
+        {
+            "id": "INT-2",
+            "scene": "guild",
+            "guild_openid": "GUILD-1",
+            "channel_openid": "CHANNEL-1",
+            "timestamp": 1762000000,
+        },
+        event_name="INTERACTION_CREATE",
+        event_id="evt-int-2",
+    )
+    assert ctx.build_reply(content="x") is None

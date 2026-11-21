@@ -3,6 +3,28 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复
+
+- **被动回复的锚点与官方事件清单对齐**：此前 `build_reply` 一律「信封 `payload.id` 优先」，于是连消息事件也用 `event_id` 回复、还同时带上只与 `msg_id` 配套的 `msg_seq`；而官方 `event_id` 只支持 `INTERACTION_CREATE` / `GROUP_ADD_ROBOT` / `GROUP_MSG_RECEIVE` / `C2C_MSG_RECEIVE` / `FRIEND_ADD`。现在按事件选锚点：消息事件（`GROUP_AT_MESSAGE_CREATE` / `GROUP_MESSAGE_CREATE` / `C2C_MESSAGE_CREATE`）取 `d.id` 作 `msg_id` 并自增 `msg_seq`，其余五个事件取信封 `id` 作 `event_id` 且不带 `msg_seq`
+- **被动回复覆盖面补齐**：`ctx.reply` / `reply_markdown` / `reply_media` / `send_reply` / `build_reply` 现在对 8 个事件生效，新增进群欢迎（`GROUP_ADD_ROBOT`）、群消息接收（`GROUP_MSG_RECEIVE`）、单聊消息接收（`C2C_MSG_RECEIVE`）、加好友欢迎（`FRIEND_ADD`）与按钮回调（`INTERACTION_CREATE`，群聊 / 单聊按 `group_openid` / `user_openid` 落场景，频道互动仍返回 `None`）
+
+### 新增
+
+- 导出常量 `GROUP_EVENT_REPLY_EVENTS`、`C2C_EVENT_REPLY_EVENTS`、`INTERACTION_REPLY_EVENT`，与既有的 `GROUP_REPLY_EVENTS` / `C2C_REPLY_EVENTS` 一起构成可回复事件清单
+
+### 迁移提示
+
+- 本次把消息事件的锚点从 `event_id` 换成 `msg_id + msg_seq`。如果自己拼请求调过 `bot.next_msg_seq(payload.id)`（用信封 id 当锚点），计数键要改成事件体 `d.id`，否则 `ctx.reply` 与手工请求各排一套序号、撞上 `40054005`
+- 依赖「非回复事件返回 `None`」来判分支的代码需要复查：`GROUP_ADD_ROBOT` 这类事件现在会真的发出去一条被动回复
+
+### 文档
+
+- `docs/api/user.md` 新增「从哪里拿 `user_openid`」：`member_openid` 与 `user_openid` 是两个不同标识，平台没有互转接口，群事件体里也没有 `user_openid`；列出 `C2C_MESSAGE_CREATE` / `FRIEND_ADD` / `union_openid` 三条正规途径
+- `docs/api/group.md` 写明成员列表与成员详情接口**不返回** `avatar` / `member_nickname`（这两个字段只在事件里下发），`GroupMember` 相应不加字段
+- `docs/app.md` 重写「reply 的锚点规则」，`docs/events.md` 新增「哪些事件可以被动回复」对照表
+
 ## [2.3.0] - 2026-11-21
 
 对齐官方 2026-11-16 / 11-17 两批变更。

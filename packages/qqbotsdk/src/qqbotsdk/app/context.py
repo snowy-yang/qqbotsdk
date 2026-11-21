@@ -32,13 +32,22 @@ from qqbotsdk.ws.payload import GatewayPayload
 if TYPE_CHECKING:
     from qqbotsdk.app.bot import Bot
 
-# 可以被动回复的群聊消息事件
+# 可以被动回复的群聊消息事件: 用事件体 d.id 作 msg_id
 GROUP_REPLY_EVENTS: Final = frozenset(
     {"GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE"}
 )
 
-# 可以被动回复的单聊消息事件
+# 可以被动回复的单聊消息事件: 用事件体 d.id 作 msg_id
 C2C_REPLY_EVENTS: Final = frozenset({"C2C_MESSAGE_CREATE"})
+
+# 可以在群聊里被动回复的事件: 用信封 id 作 event_id
+GROUP_EVENT_REPLY_EVENTS: Final = frozenset({"GROUP_ADD_ROBOT", "GROUP_MSG_RECEIVE"})
+
+# 可以在单聊里被动回复的事件: 用信封 id 作 event_id
+C2C_EVENT_REPLY_EVENTS: Final = frozenset({"C2C_MSG_RECEIVE", "FRIEND_ADD"})
+
+# 互动事件: 群聊 / 单聊都支持用 event_id 被动回复
+INTERACTION_REPLY_EVENT: Final = "INTERACTION_CREATE"
 
 # 纯文本消息
 TEXT_MESSAGE_TYPE: Final = 0
@@ -187,27 +196,51 @@ class Context:
                 return candidate
         return None
 
+    def _uses_event_anchor(self) -> bool:
+        """当前事件是否用 ``event_id`` 回复(相对于用 ``msg_id`` 回复)."""
+        event_name = self.payload.t or ""
+        return (
+            event_name in GROUP_EVENT_REPLY_EVENTS
+            or event_name in C2C_EVENT_REPLY_EVENTS
+            or event_name == INTERACTION_REPLY_EVENT
+        )
+
     def _anchor_ids(self) -> tuple[str | None, str | None]:
-        """返回 ``(event_id, msg_id)``, 前者取信封 ``payload.id``, 后者取 ``d.id``."""
-        event_id = self.payload.id or None
+        """返回 ``(event_id, msg_id)``, 按当前事件的锚点类型只填其中一个.
+
+        官方口径(2026-11-17): ``*_MESSAGE_CREATE`` 这类消息事件用事件体
+        ``d.id`` 作 ``msg_id``; ``event_id`` 只支持 ``INTERACTION_CREATE`` /
+        ``GROUP_ADD_ROBOT`` / ``GROUP_MSG_RECEIVE`` / ``C2C_MSG_RECEIVE`` /
+        ``FRIEND_ADD``, 取事件最外层的 ``id``.
+        """
+        if self._uses_event_anchor():
+            return self.payload.id or None, None
         message_id = getattr(self.event, "id", None)
         if not isinstance(message_id, str) or not message_id:
             message_id = _str_field(self.payload.d, "id")
-        return event_id, message_id
+        return None, message_id
 
     def _reply_target(self) -> tuple[Scene, str] | None:
         """被动回复的目标: 返回 ``(场景, openid)``, 不可回复时返回 None."""
         event_name = self.payload.t or ""
-        if event_name in GROUP_REPLY_EVENTS:
+        if event_name in GROUP_REPLY_EVENTS or event_name in GROUP_EVENT_REPLY_EVENTS:
             group_openid = self.group_openid
             if group_openid:
                 return "group", group_openid
             return None
-        if event_name in C2C_REPLY_EVENTS:
+        if event_name in C2C_REPLY_EVENTS or event_name in C2C_EVENT_REPLY_EVENTS:
             user_openid = self.user_openid
             if user_openid:
                 return "c2c", user_openid
             return None
+        if event_name == INTERACTION_REPLY_EVENT:
+            # 群聊互动带 group_openid, 单聊互动带 user_openid, 频道互动不支持
+            group_openid = self.group_openid
+            if group_openid:
+                return "group", group_openid
+            user_openid = self.user_openid
+            if user_openid:
+                return "c2c", user_openid
         return None
 
     def build_reply(
@@ -230,14 +263,19 @@ class Context:
                 scene, openid, request = prepared
                 await group_messages.send_group_messages(openid, request)
 
-        锚点规则是**事件 ID 优先**:
+        锚点规则与官方口径一致(2026-11-17):
 
-        1. 信封 ``payload.id`` 有值: 只填 ``event_id``, 不填 ``msg_id``;
-        2. 信封没有 id: 回退到事件体 ``payload.d.id``, 只填 ``msg_id``;
-        3. 两个都取不到: 返回 None, 不会悄悄退化成消耗主动推送频次的主动消息.
+        1. 消息事件(``GROUP_AT_MESSAGE_CREATE`` / ``GROUP_MESSAGE_CREATE`` /
+           ``C2C_MESSAGE_CREATE``): 取事件体 ``d.id`` 作 ``msg_id``, 并自动带
+           ``msg_seq``;
+        2. 事件(``GROUP_ADD_ROBOT`` / ``GROUP_MSG_RECEIVE`` / ``C2C_MSG_RECEIVE`` /
+           ``FRIEND_ADD`` / ``INTERACTION_CREATE``): 取信封 ``payload.id`` 作
+           ``event_id``, 不带 ``msg_seq``. 互动事件按 ``group_openid`` /
+           ``user_openid`` 落到群聊或单聊, 频道场景不支持, 返回 None;
+        3. 取不到锚点: 返回 None, 不会悄悄退化成消耗主动推送频次的主动消息.
 
-        ``msg_seq`` 用于同一锚点上的多条回复去重(平台对同一个 msg_id + msg_seq
-        重复发送会返回 40054005): 不传时由 Bot 按锚点自增(首次 1, 第二次 2),
+        ``msg_seq`` 只对 ``msg_id`` 锚点有意义(平台对同一个 msg_id + msg_seq
+        重复发送会返回 40054005): 不传时由 Bot 按 ``d.id`` 自增(首次 1, 第二次 2),
         传了则以传入值为准, 并把该锚点的计数推进到该值. 平台上限是群聊 5 次
         (机器人开发者是群主/管理员时 50 次)、单聊 4 次, 超出会被拒发; 群聊被动
         回复窗口自 2026-11-17 起是 60 分钟(此前 5 分钟).
@@ -266,7 +304,10 @@ class Context:
         anchor = event_id or message_id
         if anchor is None:
             return None
-        seq = self.bot.next_msg_seq(anchor, msg_seq, seq_key=seq_key)
+        # msg_seq 只与 msg_id 联合使用; 事件锚点用 event_id, 序号无意义
+        seq: int | None = msg_seq
+        if message_id is not None:
+            seq = self.bot.next_msg_seq(message_id, msg_seq, seq_key=seq_key)
         body = _reply_body(
             content=content,
             markdown=markdown,
@@ -274,7 +315,7 @@ class Context:
             card=card,
             keyboard=keyboard,
             event_id=event_id,
-            msg_id=None if event_id is not None else message_id,
+            msg_id=message_id,
             msg_seq=seq,
         )
         scene, openid = target
@@ -442,8 +483,11 @@ async def _post(
 
 
 __all__ = [
+    "C2C_EVENT_REPLY_EVENTS",
     "C2C_REPLY_EVENTS",
+    "GROUP_EVENT_REPLY_EVENTS",
     "GROUP_REPLY_EVENTS",
+    "INTERACTION_REPLY_EVENT",
     "Context",
     "PreparedReply",
 ]

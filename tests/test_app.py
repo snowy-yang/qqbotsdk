@@ -603,10 +603,10 @@ def _patch_user_send(
     return sent
 
 
-async def test_reply_uses_event_id_and_increments_msg_seq(
+async def test_reply_uses_msg_id_and_increments_msg_seq(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """reply 优先用 event_id, 同一锚点连续回复两次 msg_seq 递增."""
+    """消息事件的 reply 用 d.id 作 msg_id(信封 id 不参与), 连续回复 msg_seq 递增."""
     sent = _patch_group_send(monkeypatch)
     results: list[str | None] = []
     async with Harness(monkeypatch, [_group_dispatch()]) as harness:
@@ -626,20 +626,23 @@ async def test_reply_uses_event_id_and_increments_msg_seq(
     assert first_openid == second_openid == GROUP_OPENID
     assert first.msg_type == 0
     assert first.content == "第一条"
-    assert first.event_id == "evt-1"
-    assert first.msg_id is None
+    assert first.msg_id == MESSAGE_ID
+    assert first.event_id is None
     assert first.msg_seq == 1
     assert second.msg_seq == 2
-    # event_id 与 msg_id 互斥
+    # 消息事件只带 msg_id, 一封帧里的 event id 不会被误用
     dumped = second.model_dump(exclude_none=True)
-    assert ("event_id" in dumped) != ("msg_id" in dumped)
+    assert "event_id" not in dumped
+    assert dumped["msg_id"] == MESSAGE_ID
 
 
-async def test_reply_falls_back_to_msg_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """信封没有 event id 时改用 d.id 走 msg_id."""
+async def test_reply_ignores_envelope_id_for_message_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """消息事件即使信封带 id 也走 msg_id, 符合官方 event_id 支持事件的清单."""
     sent = _patch_group_send(monkeypatch)
     results: list[str | None] = []
-    dispatch = {"t": "GROUP_AT_MESSAGE_CREATE", "d": _group_d()}
+    dispatch = {"t": "GROUP_AT_MESSAGE_CREATE", "id": "evt-1", "d": _group_d()}
     async with Harness(monkeypatch, [dispatch]) as harness:
         bot = Bot(url=harness.gateway.ws_url, auto_reconnect=False)
 
@@ -691,22 +694,22 @@ async def test_reply_c2c_uses_author_openid(monkeypatch: pytest.MonkeyPatch) -> 
 
     user_openid, request = sent[0]
     assert user_openid == USER_OPENID
-    assert request.event_id == "evt-c2c"
-    assert request.msg_id is None
+    assert request.event_id is None
+    assert request.msg_id == "C2C-MSG-1"
     assert request.content == "收到"
 
 
 async def test_reply_on_non_message_event_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """非消息事件没有被动回复语义, reply 返回 None 且不发请求."""
+    """清单外的事件没有被动回复语义, reply 返回 None 且不发请求."""
     sent = _patch_group_send(monkeypatch)
     results: list[str | None] = []
-    dispatch = {"t": "GROUP_ADD_ROBOT", "id": "evt-bot", "d": {"group_openid": "G1"}}
+    dispatch = {"t": "GROUP_DEL_ROBOT", "id": "evt-del", "d": {"group_openid": "G1"}}
     async with Harness(monkeypatch, [dispatch]) as harness:
         bot = Bot(url=harness.gateway.ws_url, auto_reconnect=False)
 
-        @bot.on("GROUP_ADD_ROBOT")
+        @bot.on("GROUP_DEL_ROBOT")
         async def handler(ctx: Context) -> None:
             results.append(await ctx.reply("收到"))
 
@@ -715,6 +718,31 @@ async def test_reply_on_non_message_event_returns_none(
 
     assert results == [None]
     assert sent == []
+
+
+async def test_reply_on_group_add_robot_uses_event_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GROUP_ADD_ROBOT 在官方 event_id 支持清单里, 进群欢迎语可直接被动回复."""
+    sent = _patch_group_send(monkeypatch)
+    results: list[str | None] = []
+    dispatch = {"t": "GROUP_ADD_ROBOT", "id": "evt-bot", "d": {"group_openid": "G1"}}
+    async with Harness(monkeypatch, [dispatch]) as harness:
+        bot = Bot(url=harness.gateway.ws_url, auto_reconnect=False)
+
+        @bot.on("GROUP_ADD_ROBOT")
+        async def handler(ctx: Context) -> None:
+            results.append(await ctx.reply("欢迎进群"))
+
+        harness.start(bot)
+        await _wait_until(lambda: len(results) == 1)
+
+    assert results == ["sent-1"]
+    openid, request = sent[0]
+    assert openid == "G1"
+    assert request.event_id == "evt-bot"
+    assert request.msg_id is None
+    assert request.msg_seq is None
 
 
 async def test_send_is_proactive_without_anchor(
