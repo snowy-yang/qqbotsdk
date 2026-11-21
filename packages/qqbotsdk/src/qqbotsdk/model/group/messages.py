@@ -40,7 +40,7 @@ class SendGroupMessagesRequest(MessageSendRequestBase):
     )
     msg_id: str | None = Field(
         default=None,
-        description="被动回复的消息 ID，从 GROUP_AT_MESSAGE_CREATE 等事件的 d.id 获取，5 分钟内有效",
+        description="被动回复的消息 ID，从 GROUP_AT_MESSAGE_CREATE 等事件的 d.id 获取，60 分钟内有效（2026-11-17 起，此前为 5 分钟）",
     )
     event_id: str | None = Field(
         default=None,

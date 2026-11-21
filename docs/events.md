@@ -107,6 +107,29 @@ async def on_click(ctx: Context) -> None:
     await ctx.api.ack_interaction(0)
 ```
 
+## 2026-11 起新下发的字段
+
+官方 2026-11-16 给消息事件补了头像、群昵称和「群统一标识」，SDK 已建模。全是可选字段，旧事件里没有时就是 `None`：
+
+| 字段 | 所在模型 | 说明 |
+|---|---|---|
+| `author.avatar` | `EventUser`（群聊 / 单聊事件） | 发送者头像 URL |
+| `author.member_nickname` | `EventUser` | 群成员昵称，可能不同于 `username` |
+| `mentions[].is_you` | `EventMentionUser` | 这个被 @ 的是不是机器人自己 |
+| `mentions[].scope` | `EventMentionUser` | `all`=@全体成员，`single`=@单个成员 |
+| `union_group_openid` | `GroupMessageEventBase` / `GroupRobotOperationEvent` / `GroupMemberChangeEvent` | 群统一标识，跨应用关联同一群时有效 |
+| `union_group_openid` | `GroupInfo` | 同上，`get_group_info` 的返回值里 |
+
+注意 `mentions` 的元素类型从 `EventUser` 换成了它的子类 `EventMentionUser`：原来能用的字段一个不少，只是多了 `is_you` 与 `scope`。
+
+```python
+@bot.on("GROUP_AT_MESSAGE_CREATE")
+async def on_at(ctx: Context) -> None:
+    at_all = any(m.scope == "all" for m in ctx.event.mentions or [])
+    who = ctx.event.author.member_nickname or ctx.event.author.username
+    await ctx.reply(f"{who} {'@了全体成员' if at_all else '叫了我'}")
+```
+
 ```python
 from qqbotsdk.model.event import EVENT_MODELS, parse_event
 

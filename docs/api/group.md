@@ -39,7 +39,7 @@ print(resp.id, resp.timestamp)
 | `content` | `str` | 文本内容；msg_type=0 为全文；传 markdown 后须为空 |
 | `markdown` | `MessageMarkdown` | msg_type=2 必填 |
 | `keyboard` | `Keyboard` | 内嵌键盘；短形式只传 id，长形式传 content.rows |
-| `msg_id` | `str` | 被动回复的消息 ID，取事件 `d.id`，5 分钟内有效 |
+| `msg_id` | `str` | 被动回复的消息 ID，取事件 `d.id`，60 分钟内有效（2026-11-17 起，此前 5 分钟） |
 | `event_id` | `str` | 被动回复的事件 ID，与 `msg_id` 二选一 |
 | `msg_seq` | `int` | 回复序号，与 `msg_id` 联合使用，默认 1 |
 | `media` | `MediaInfo` | msg_type=7，`file_info` 来自富媒体上传接口 |
@@ -159,7 +159,7 @@ from qqbotsdk.model.group.member import (
 
 - **`GetGroupMembersRequest`**：`cursor`（可选，翻页传上一页 `next_cursor`）。
 - `GetGroupMembersResponse`：`members: list[GroupMember]`、`next_cursor`。`GroupMember` 含 `member_openid`、`username`、`member_role`（`member`/`owner`/`admin`）、`bot`、`joined_at`、`union_openid`。
-- `GetGroupInfoResponse`：`group_openid`、`group_name`、`group_finger_memo`、`group_class_text`、`group_tags`、`group_member_num`。
+- `GetGroupInfoResponse`：`group_openid`、`union_group_openid`、`group_name`、`group_finger_memo`、`group_class_text`、`group_tags`、`group_member_num`。
 - `GetGroupBotStateResponse`：`member_openid`、`joined_at`、`allow_proactive_msg`、`recv_msg_setting`、`member_role`（`member`/`owner`/`admin`）。
 - `RemoveGroupMembersResponse`：`remove_members_result: str | None`、`add_to_member_blacklist_fail_openids: list[str] | None`。
 - **`RemoveGroupMembersRequest`**：`member_openids: list[str]`（必填，≤20）、`add_to_member_blacklist`（可选，默认 false）。

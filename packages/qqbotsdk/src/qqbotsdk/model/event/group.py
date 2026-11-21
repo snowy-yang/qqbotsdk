@@ -20,8 +20,8 @@ class EventUser(QQBotBaseModel):
     """群聊与单聊事件里的发送者 / 被@用户.
 
     与 ``qqbotsdk.model.guild.member.User`` 不同: 这里带有 ``user_openid`` /
-    ``member_openid`` / ``member_role`` 三个 QQ 单群聊场景专用字段, 且不含
-    ``avatar``. guild 包是可选依赖, 本包不能反向引用.
+    ``member_openid`` / ``member_role`` 三个 QQ 单群聊场景专用字段. guild 包是
+    可选依赖, 本包不能反向引用.
     """
 
     id: str | None = Field(
@@ -31,6 +31,10 @@ class EventUser(QQBotBaseModel):
     username: str | None = Field(
         default=None,
         description="用户昵称",
+    )
+    avatar: str | None = Field(
+        default=None,
+        description="用户头像 URL（2026-11-16 起随消息事件下发）",
     )
     bot: bool | None = Field(
         default=None,
@@ -55,6 +59,27 @@ class EventUser(QQBotBaseModel):
     member_role: Literal["member", "admin", "owner"] | None = Field(
         default=None,
         description="群内角色：member=普通成员，admin=管理员，owner=群主",
+    )
+    member_nickname: str | None = Field(
+        default=None,
+        description="群成员昵称（2026-11-16 起随群消息事件下发，可不同于 username）",
+    )
+
+
+class EventMentionUser(EventUser):
+    """``mentions`` 数组里的被@用户.
+
+    比 ``EventUser`` 多两个只在 mentions 元素里出现的字段: ``is_you``
+    (是否@的是机器人自己) 与 ``scope`` (@全体还是@单个成员).
+    """
+
+    is_you: bool | None = Field(
+        default=None,
+        description="是否@的是机器人自己",
+    )
+    scope: Literal["all", "single"] | None = Field(
+        default=None,
+        description="@ 的范围：all=@全体成员，single=@单个成员",
     )
 
 
@@ -185,6 +210,10 @@ class GroupMessageEventBase(QQBotBaseModel):
         default=None,
         description="群 OpenID",
     )
+    union_group_openid: str | None = Field(
+        default=None,
+        description="群统一标识（2026-11-16 起下发，跨应用关联同一群时有效）",
+    )
     timestamp: str | None = Field(
         default=None,
         description="消息发送时间，RFC3339 格式",
@@ -201,9 +230,9 @@ class GroupMessageEventBase(QQBotBaseModel):
         default=None,
         description="消息附件",
     )
-    mentions: list[EventUser] | None = Field(
+    mentions: list[EventMentionUser] | None = Field(
         default=None,
-        description="消息中@的用户列表，不含@机器人自身",
+        description="消息中@的用户列表，不含@机器人自身；元素带 is_you/scope",
     )
     ark_data: EventArkData | None = Field(
         default=None,
@@ -250,6 +279,10 @@ class GroupRobotOperationEvent(QQBotBaseModel):
         default=None,
         description="群 OpenID",
     )
+    union_group_openid: str | None = Field(
+        default=None,
+        description="群统一标识（2026-11-16 起下发）",
+    )
     op_member_openid: str | None = Field(
         default=None,
         description="执行操作的群成员 OpenID",
@@ -282,6 +315,10 @@ class GroupMemberChangeEvent(QQBotBaseModel):
     group_openid: str | None = Field(
         default=None,
         description="群 OpenID",
+    )
+    union_group_openid: str | None = Field(
+        default=None,
+        description="群统一标识（2026-11-16 起下发）",
     )
     member_openid: str | None = Field(
         default=None,

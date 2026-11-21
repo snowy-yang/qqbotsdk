@@ -41,7 +41,7 @@ class SendUserMessagesRequest(MessageSendRequestBase):
     )
     msg_id: str | None = Field(
         default=None,
-        description="被动回复的消息 ID，从 C2C_MESSAGE_CREATE 等事件的 d.id 获取，5 分钟内有效",
+        description="被动回复的消息 ID，从 C2C_MESSAGE_CREATE 等事件的 d.id 获取。也可传 GROUP_AT_MESSAGE_CREATE / GROUP_MESSAGE_CREATE 事件的 d.id 私聊回复该群消息发送者（要求好友关系，user_openid 必须是该消息发送者，次数与群内回复共用同一 msg_id 的上限）",
     )
     event_id: str | None = Field(
         default=None,

@@ -3,6 +3,30 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.3.0] - 2026-11-21
+
+对齐官方 2026-11-16 / 11-17 两批变更。
+
+### 新增
+
+- **`get_user_info()` 与 `UserInfo`**：`GET /v2/users/{user_openid}/info`。返回 `union_openid` / `username` / `avatar`（头像原图）/ `allow_proactive_msg`——最后一个能直接回答「能不能给这个人发主动消息」，此前只能靠试发。接口 10 QPS，与用户无好友关系时平台返回 `40184001`
+- **群消息私聊回复**：群消息事件（`GROUP_AT_MESSAGE_CREATE` / `GROUP_MESSAGE_CREATE`）的 `d.id` 现在可以填进 `SendUserMessagesRequest.msg_id`，私聊回复该群消息的发送者。前置条件（好友关系、`user_openid` 必须是发送者）与配额规则（按群消息算 60 分钟 / 5 次，开发者是群主或管理员时 50 次，且与群内回复共用同一 `msg_id` 的上限）已写进字段描述与 `docs/api/user.md`
+- **事件新字段**：`EventUser.avatar` 与 `EventUser.member_nickname`（消息事件自 2026-11-16 起下发发送者头像与群昵称，群昵称可能不同于 `username`）；新模型 `EventMentionUser`（`EventUser` 子类）带 `is_you`（是不是 @ 的机器人自己）与 `scope`（`all` / `single`），`GroupMessageEventBase.mentions` 相应用该类型
+- **`union_group_openid`（群统一标识）**：`GroupMessageEventBase`、`GroupRobotOperationEvent`、`GroupMemberChangeEvent` 与 `GroupInfo` 都补了这个字段，跨应用关联同一群时可用它对齐
+- **新错误码**：`MSG_NO_FRIENDSHIP`(`40054004`)、`MSG_FRIEND_VERIFY_FAILED`(`40054006`)、`MSG_USER_REJECTED`(`40054013`)、`MSG_TOO_LONG_OR_ABNORMAL`(`40054018`)、`MSG_INPUT_TYPE_INVALID`(`50059`)、`MSG_SUBSCRIBE_BUTTON_LIMIT`(`304062`)、`USER_NO_FRIENDSHIP`(`40184001`)
+
+### 变更（平台规则调整，SDK 只同步文档）
+
+- **群消息被动回复窗口 5 分钟 → 60 分钟**，回复次数 **5 → 50**（机器人开发者是该群群主 / 管理员时）。`Context.reply` / `Context.build_reply` 的 docstring、`MSG_PASSIVE_LIMIT` 与 `MSG_ID_EXPIRED_ALT` 的说明、`docs/app.md`、`docs/errors.md`、`docs/api/group.md` 全部同步。`msg_seq` 的自增逻辑不变
+
+### 兼容性
+
+- 新增字段全部可选，旧事件 / 旧响应解析结果不变；`mentions` 的元素类型是 `EventUser` 的子类，原有属性（`id`、`member_openid`、`member_role` 等）继续可用
+
+### 测试
+
+- 新增 `tests/test_new_apis_20261117.py`（9 例）：新接口路由与字段、全字段缺省、事件新字段、`mentions` 元素类型、`union_group_openid` 在四类模型上的落点、注册表解析不丢新字段、新错误码取值。265 passed
+
 ## [2.2.1] - 2026-11-06
 
 ### 修复

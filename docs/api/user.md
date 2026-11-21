@@ -4,6 +4,30 @@
 
 > 单聊与群聊的 openid **不通用**；群接口见 [group.md](group.md)。
 
+## 用户信息
+
+```python
+from qqbotsdk.api.user import get_user_info
+
+info = await get_user_info(user_openid)
+print(info.username, info.avatar, info.allow_proactive_msg)
+```
+
+| 接口 | 路由 | 请求 / 响应 |
+|---|---|---|
+| `get_user_info(user_openid)` | `GET /v2/users/{user_openid}/info` | — → `GetUserInfoResponse` |
+
+响应 `GetUserInfoResponse(union_openid, username, avatar, allow_proactive_msg)`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `union_openid` | `str` | 跨应用关联用户 openid，绑定了 3 方应用时有效 |
+| `username` | `str` | 用户名 |
+| `avatar` | `str` | 头像原图 URL |
+| `allow_proactive_msg` | `bool` | 是否接收主动推送（发主动消息前先看这个） |
+
+平台限制：10 QPS；与用户无好友关系时返回 `40184001`（`codes.USER_NO_FRIENDSHIP`）。
+
 ## 发送与撤回
 
 ```python
@@ -24,6 +48,8 @@ await recall_user_messages(user_openid, resp.id)  # 返回 None
 
 响应 `SendUserMessagesResponse(id, timestamp, ext_info)`。
 
+被动回复窗口：**60 分钟、4 次**（按 `msg_id` + `msg_seq` 计数）。
+
 **`SendUserMessagesRequest`**（全部可选，按 `msg_type` 取用）：
 
 | 字段 | 类型 | 说明 |
@@ -32,7 +58,7 @@ await recall_user_messages(user_openid, resp.id)  # 返回 None
 | `content` | `str` | 文本内容；传 markdown 后须为空 |
 | `markdown` | `MessageMarkdown` | msg_type=2 必填 |
 | `keyboard` | `Keyboard` | 内嵌键盘 |
-| `msg_id` | `str` | 被动回复的消息 ID，5 分钟内有效 |
+| `msg_id` | `str` | 被动回复的消息 ID，来自 `C2C_MESSAGE_CREATE` 的 `d.id`；也可传群消息的 `d.id` 做「群消息私聊回复」（见下） |
 | `event_id` | `str` | 被动回复的事件 ID，与 `msg_id` 二选一（支持 INTERACTION_CREATE / C2C_MSG_RECEIVE / FRIEND_ADD） |
 | `msg_seq` | `int` | 回复序号，默认 1，相同 `msg_id`+`msg_seq` 重复发送会失败 |
 | `media` | `MediaInfo` | msg_type=7 必填 |
@@ -40,6 +66,29 @@ await recall_user_messages(user_openid, resp.id)  # 返回 None
 | `is_wakeup` | `bool` | 互动召回消息，与 `msg_id`/`event_id` 互斥 |
 | `input_notify` | `InputNotify` | msg_type=6 使用 |
 | `card` | `MessageCard` | msg_type=8 必填 |
+
+## 群消息私聊回复（2026-11-17 新增）
+
+群消息事件（`GROUP_AT_MESSAGE_CREATE` / `GROUP_MESSAGE_CREATE`）的 `d.id` 也可以填进单聊请求的 `msg_id`，用来私聊回复这条群消息的发送者：
+
+```python
+from qqbotsdk.api.user import send_user_messages
+from qqbotsdk.model.user.messages import SendUserMessagesRequest
+
+await send_user_messages(
+    user_openid,  # 必须是该群消息的发送者
+    SendUserMessagesRequest(
+        content="群里不方便说，私聊你", msg_id=group_event.id, msg_seq=1
+    ),
+)
+```
+
+约束：
+
+- 要求该用户与机器人为好友关系，否则 `40054004 无好友关系`；`user_openid` 必须是这条群消息的发送者，否则 `40034024`。
+- 有效时间与次数按**群消息**规则算：60 分钟；5 次，机器人开发者是该群群主/管理员时 50 次。
+- 与群内回复**共用同一个 `msg_id` 的次数上限**：同一个锚点既在群里回又私聊回时两条一起占配额，`msg_seq` 也要一起排，否则会被 `40054005` 去重。
+- 群消息事件体只给 `member_openid`，没有 `user_openid`。SDK 不做猜转换——要用这个能力，得自己拿到该发送者的 `user_openid`（例如他给你的单聊事件，或用 `union_openid` 关联）。
 
 ## 富媒体上传（三步）
 

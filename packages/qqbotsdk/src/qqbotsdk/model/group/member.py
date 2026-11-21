@@ -10,6 +10,10 @@ class GroupInfo(QQBotBaseModel):
         default=None,
         description="群 OpenID",
     )
+    union_group_openid: str | None = Field(
+        default=None,
+        description="群统一标识（2026-11-16 起返回，跨应用关联同一群时有效）",
+    )
     group_name: str | None = Field(
         default=None,
         description="群名称",

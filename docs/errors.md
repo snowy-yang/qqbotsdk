@@ -94,14 +94,21 @@ except QQBotAPIError as exc:
 | `MSG_TYPE_MISMATCH` | `22006` | 消息类型与内容不匹配 | 检查 `msg_type` 与内容字段（2.x 已自动推导） |
 | `MSG_TYPE_INVALID` | `340069` | 消息类型无效 | 检查 `msg_type` 取值 |
 | `MSG_CONTENT_INVALID` | `304061` | 消息内容无效 | 检查消息格式 |
-| `MSG_ID_EXPIRED_ALT` | `304103` | 消息 ID 已过期，不能回复 | 被动回复窗口：群 5 分钟 / 单聊 60 分钟 |
+| `MSG_ID_EXPIRED_ALT` | `304103` | 消息 ID 已过期，不能回复 | 被动回复窗口：群 60 分钟 / 单聊 60 分钟 |
 | `MSG_ID_EXPIRED` | `40034005` | 回复消息 `msg_id` 已过期 | 同上 |
 | `EVENT_ID_INVALID` | `40034025` | `event_id` 无效或越权 | 检查锚点是否取错 |
 | `EVENT_ID_EXPIRED` | `40034026` | `event_id` 已过期 | 收到事件后尽快回复 |
 | `EVENT_NOT_REPLYABLE` | `40034027` | 该事件不支持回复消息 | 例如 `GROUP_MEMBER_ADD` 只能发主动消息 |
 | `MSG_DEDUPLICATED` | `40054005` | 消息被去重 | 递增 `msg_seq`（`ctx.reply()` 已自动处理） |
-| `MSG_PASSIVE_LIMIT` | `40034128` | 被动回复时间/次数超限 | 群聊 5 次、单聊 4 次 |
+| `MSG_PASSIVE_LIMIT` | `40034128` | 被动回复时间/次数超限 | 群聊 5 次（开发者是群主/管理员时 50 次）、单聊 4 次 |
 | `MSG_ACTIVE_RATE_LIMITED` | `40034100` | 主动消息超频控 | 降低发送频率 |
+| `MSG_NO_FRIENDSHIP` | `40054004` | 无好友关系 | 先加好友；群消息私聊回复同样要求好友关系 |
+| `MSG_FRIEND_VERIFY_FAILED` | `40054006` | 验证好友关系失败（系统错误） | 可重试 |
+| `MSG_USER_REJECTED` | `40054013` | 用户拒收消息 | 不要重试 |
+| `MSG_TOO_LONG_OR_ABNORMAL` | `40054018` | 消息过长或异常 | 缩短内容后重试 |
+| `MSG_INPUT_TYPE_INVALID` | `50059` | 输入类型错误 | 检查请求体字段类型 |
+| `MSG_SUBSCRIBE_BUTTON_LIMIT` | `304062` | 订阅按钮数量达上限 | 减少按钮数量 |
+| `USER_NO_FRIENDSHIP` | `40184001` | 取用户信息时无好友关系 | `get_user_info` 只能查好友 |
 | `BOT_NOT_IN_GROUP` | `40054003` | 机器人不是群成员 | 先把机器人拉进群 |
 | `BOT_MUTED` | `40054002` | 机器人被禁言 | 等解禁 |
 | `APP_PRIVILEGE_NOT_PASS` | `11253` | 应用未获得该接口权限 | 向平台申请 |

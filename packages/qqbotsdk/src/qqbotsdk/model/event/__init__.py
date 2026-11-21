@@ -23,6 +23,7 @@ from qqbotsdk.model.event.c2c import (
 )
 from qqbotsdk.model.event.group import (
     EventArkData,
+    EventMentionUser,
     EventMessageAttachment,
     EventMessageScene,
     EventMsgElement,
@@ -84,6 +85,7 @@ __all__ = [
     "C2CMsgReceiveEvent",
     "C2CMsgRejectEvent",
     "EventArkData",
+    "EventMentionUser",
     "EventMessageAttachment",
     "EventMessageScene",
     "EventMsgElement",

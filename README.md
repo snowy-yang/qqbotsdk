@@ -5,7 +5,7 @@ QQ 官方机器人 SDK（Python 3.12+）。按域拆成三个可独立安装的�
 | 发行包 | 内容 | 依赖 |
 |---|---|---|
 | `qqbotsdk-base-py` | 基座：`QQBotBaseModel`、共享消息模型、鉴权与 `session`、`qqbotsdk.ws` 网关客户端 | aiohttp、loguru、pydantic、python-dotenv |
-| `qqbotsdk-py` | 核心业务：群聊消息 / 群管理 / 单聊 / 素材 / 互动 / 菜单 / 面板 | `qqbotsdk-base-py` |
+| `qqbotsdk-py` | 核心业务：群聊消息 / 群管理 / 单聊（含用户信息） / 素材 / 互动 / 菜单 / 面板 | `qqbotsdk-base-py` |
 | `qqbotsdk-guild-py` | 频道域：guild / channel / 成员 / 身份组 / 公告 / 精华 / 日程 / 论坛 / 私信 | `qqbotsdk-base-py` |
 
 `loguru`、`python-dotenv`、`aiohttp`、`pydantic` 统一由 base 提供，因此单独安装任一业务包都能直接用日志与 `.env`。

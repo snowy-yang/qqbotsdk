@@ -107,7 +107,7 @@ finally:
 | 鉴权与会话 | [api/auth.md](api/auth.md) | `get_access_token` / `get_authorization` / `session` / 429 重试 / 错误检查 |
 | 机器人基础 | [api/bot.md](api/bot.md) | `get_gateway` / `get_me` / `generate_url_link` / 网关地址获取 |
 | 群聊与群管理 | [api/group.md](api/group.md) | 群消息、富媒体上传、成员、禁言、黑名单、入群审批、自动审批策略 |
-| 单聊 | [api/user.md](api/user.md) | 单聊消息、流式消息、富媒体上传 |
+| 单聊 | [api/user.md](api/user.md) | 用户信息、单聊消息、群消息私聊回复、流式消息、富媒体上传 |
 | 素材管理 | [api/media.md](api/media.md) | 图片素材 prepare / 直传 / complete / 列表 / 删除 |
 | 菜单与面板 | [api/menu-panel.md](api/menu-panel.md) | 全局自定义菜单、指令面板 |
 | 互动 | [api/interaction.md](api/interaction.md) | 消息按钮 / 快捷菜单回包 |

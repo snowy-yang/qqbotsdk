@@ -55,7 +55,7 @@ MSG_URL_NOT_ALLOWED: Final = 40054010
 """不允许发送 URL."""
 
 MSG_PASSIVE_LIMIT: Final = 40034128
-"""被动回复时间或次数超限(群聊 5 次 / 单聊 4 次)."""
+"""被动回复时间或次数超限(群聊 5 次, 机器人开发者是群主/管理员时 50 次; 单聊 4 次)."""
 
 MSG_ACTIVE_RATE_LIMITED: Final = 40034100
 """主动消息发送超过频控限制."""
@@ -77,6 +77,29 @@ FILE_INFO_INVALID: Final = 304080
 
 MSG_ID_EXPIRED_ALT: Final = 304103
 """消息 ID 已过期, 不能回复."""
+
+MSG_NO_FRIENDSHIP: Final = 40054004
+"""无好友关系: 给非好友用户发私聊消息. 群消息私聊回复同样要求好友关系."""
+
+MSG_FRIEND_VERIFY_FAILED: Final = 40054006
+"""验证好友关系失败(系统错误), 可重试."""
+
+MSG_USER_REJECTED: Final = 40054013
+"""用户拒收消息, 不要再重试."""
+
+MSG_TOO_LONG_OR_ABNORMAL: Final = 40054018
+"""消息过长或异常, 缩短内容后重试."""
+
+MSG_INPUT_TYPE_INVALID: Final = 50059
+"""输入类型错误, 检查请求体字段类型."""
+
+MSG_SUBSCRIBE_BUTTON_LIMIT: Final = 304062
+"""订阅按钮数量达到上限, 减少按钮数量."""
+
+# ---------------------------------------------------------------- 用户信息
+
+USER_NO_FRIENDSHIP: Final = 40184001
+"""获取用户基本信息时无好友关系(2026-11-16 新增的 ``GET /v2/users/{openid}/info``)."""
 
 # ---------------------------------------------------------------- 应用与权限
 
@@ -118,12 +141,19 @@ __all__ = [
     "MSG_ACTIVE_RATE_LIMITED",
     "MSG_CONTENT_INVALID",
     "MSG_DEDUPLICATED",
+    "MSG_FRIEND_VERIFY_FAILED",
     "MSG_ID_EXPIRED",
     "MSG_ID_EXPIRED_ALT",
+    "MSG_INPUT_TYPE_INVALID",
     "MSG_LENGTH_EXCEEDED",
+    "MSG_NO_FRIENDSHIP",
     "MSG_PASSIVE_LIMIT",
+    "MSG_SUBSCRIBE_BUTTON_LIMIT",
+    "MSG_TOO_LONG_OR_ABNORMAL",
     "MSG_TYPE_INVALID",
     "MSG_TYPE_MISMATCH",
     "MSG_URL_NOT_ALLOWED",
+    "MSG_USER_REJECTED",
     "QQ_STREAM_FETCH_FAILED",
+    "USER_NO_FRIENDSHIP",
 ]
